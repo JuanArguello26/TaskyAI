@@ -7,6 +7,7 @@ from app.models.user import User
 from app.models.task import Task, SubTask, TaskStatus
 from app.schemas.task import TaskCreate, TaskUpdate, TaskResponse, TaskStatusUpdate, SubTaskCreate
 from app.core.security import get_current_user
+from app.api.v1.endpoints.users import add_xp, can_complete_for_xp
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
 
@@ -33,6 +34,10 @@ def create_task(
     db.add(task)
     db.commit()
     db.refresh(task)
+    
+    add_xp(current_user, db, "create_task", 5, task.id, "task")
+    db.commit()
+    
     return task
 
 
@@ -93,9 +98,12 @@ def update_task_status(
     if not task:
         raise HTTPException(404, "Task not found")
     
+    was_completed = task.status == TaskStatus.COMPLETED
     task.status = status_data.status
-    if status_data.status == TaskStatus.COMPLETED:
+    if status_data.status == TaskStatus.COMPLETED and not was_completed:
         task.completed_at = datetime.utcnow()
+        if can_complete_for_xp(current_user.id, task.id, "task", db):
+            add_xp(current_user, db, "complete_task", 15, task.id, "task")
     
     db.commit()
     db.refresh(task)

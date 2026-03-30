@@ -8,6 +8,7 @@ from app.models.event import Event
 from app.models.reminder import Reminder
 from app.schemas.event import EventCreate, EventUpdate, EventResponse
 from app.core.security import get_current_user
+from app.api.v1.endpoints.users import add_xp
 
 router = APIRouter(prefix="/events", tags=["events"])
 
@@ -39,6 +40,9 @@ def create_event(
     db.refresh(event)
     
     _create_event_reminder(event, db, current_user.id)
+    
+    add_xp(current_user, db, "create_event", 3, event.id, "event")
+    db.commit()
     
     return event
 

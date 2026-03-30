@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { Token, User, Task, Note, Event, Habit, Reminder, DashboardSummary, ProductivityHistory, MotivationalQuote } from '@/types';
+import { Token, User, UserWithXP, Task, Note, Event, Habit, Reminder, DashboardSummary, ProductivityHistory, MotivationalQuote } from '@/types';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || '/api/v1';
 
@@ -232,6 +232,26 @@ export const ai = {
   taskSuggestions: async () => {
     const { data } = await api.get<TaskSuggestion[]>('/ai/task-suggestions');
     return data;
+  },
+};
+
+export const users = {
+  me: async () => {
+    const { data } = await api.get<UserWithXP>('/users/me');
+    return data;
+  },
+  update: async (name: string) => {
+    const { data } = await api.put<User>('/users/me', { name });
+    return data;
+  },
+  changePassword: async (currentPassword: string, newPassword: string) => {
+    await api.put('/users/me/password', {
+      current_password: currentPassword,
+      new_password: newPassword,
+    });
+  },
+  delete: async () => {
+    await api.delete('/users/me');
   },
 };
 

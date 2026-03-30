@@ -2,7 +2,13 @@ export interface User {
   id: number;
   email: string;
   name: string;
+  experience: number;
+  level: number;
   created_at: string;
+}
+
+export interface UserWithXP extends User {
+  xp_to_next_level: number;
 }
 
 export interface Task {

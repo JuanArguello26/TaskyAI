@@ -10,6 +10,7 @@ import NotesView from '@/components/NotesView';
 import HabitsView from '@/components/HabitsView';
 import RemindersView from '@/components/RemindersView';
 import AIView from '@/components/AIView';
+import SettingsView from '@/components/SettingsView';
 
 export default function AppPage() {
   const router = useRouter();
@@ -34,6 +35,7 @@ export default function AppPage() {
       try {
         const store = useStore.getState();
         await Promise.all([
+          store.fetchUser(),
           store.fetchDashboard(),
           store.fetchTasks(),
           store.fetchNotes(),
@@ -78,6 +80,8 @@ export default function AppPage() {
         return <AIView />;
       case 'reminders':
         return <RemindersView />;
+      case 'settings':
+        return <SettingsView />;
       default:
         return <DashboardView />;
     }

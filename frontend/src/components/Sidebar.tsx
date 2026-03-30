@@ -1,8 +1,9 @@
 'use client';
 import { useStore } from '@/store';
 import { useTheme } from './ThemeProvider';
-import { LayoutDashboard, CheckSquare, Calendar, FileText, Flame, LogOut, Sun, Moon, Bell, Sparkles } from 'lucide-react';
+import { LayoutDashboard, CheckSquare, Calendar, FileText, Flame, LogOut, Sun, Moon, Bell, Sparkles, Settings } from 'lucide-react';
 import clsx from 'clsx';
+import XPBar from './XPBar';
 
 const navItems = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
@@ -12,6 +13,7 @@ const navItems = [
   { id: 'habits', label: 'Hábitos', icon: Flame },
   { id: 'ai', label: 'Tasky AI', icon: Sparkles },
   { id: 'reminders', label: 'Recordatorios', icon: Bell },
+  { id: 'settings', label: 'Configuración', icon: Settings },
 ] as const;
 
 export default function Sidebar() {
@@ -28,6 +30,10 @@ export default function Sidebar() {
           </h1>
           <p className="text-sm text-gray-400/80">Life OS con IA</p>
         </div>
+      </div>
+      
+      <div className="px-3 pb-3">
+        <XPBar />
       </div>
       
       <nav className="flex-1 px-3">

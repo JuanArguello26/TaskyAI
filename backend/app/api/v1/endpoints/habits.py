@@ -8,6 +8,7 @@ from app.models.habit import Habit, HabitLog
 from app.models.reminder import Reminder
 from app.schemas.habit import HabitCreate, HabitUpdate, HabitResponse, HabitLogCreate, HabitLogResponse
 from app.core.security import get_current_user
+from app.api.v1.endpoints.users import add_xp, can_complete_for_xp
 
 router = APIRouter(prefix="/habits", tags=["habits"])
 
@@ -33,6 +34,9 @@ def create_habit(
     
     if habit.start_time:
         _create_habit_reminders(habit, db, current_user.id)
+    
+    add_xp(current_user, db, "create_habit", 5, habit.id, "habit")
+    db.commit()
     
     return habit
 
@@ -143,13 +147,24 @@ def log_habit(
     ).first()
     
     if existing_log:
+        was_completed = existing_log.is_completed
         existing_log.is_completed = log_data.is_completed
+        
+        if log_data.is_completed and not was_completed:
+            if can_complete_for_xp(current_user.id, habit_id, "habit", db):
+                add_xp(current_user, db, "complete_habit", 10, habit_id, "habit")
+        
         db.commit()
         db.refresh(existing_log)
         return existing_log
     
     log = HabitLog(**log_data.model_dump(), habit_id=habit_id)
     db.add(log)
+    
+    if log_data.is_completed:
+        if can_complete_for_xp(current_user.id, habit_id, "habit", db):
+            add_xp(current_user, db, "complete_habit", 10, habit_id, "habit")
+    
     db.commit()
     db.refresh(log)
     return log

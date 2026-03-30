@@ -3,8 +3,8 @@
 @tailwind utilities;
 
 :root {
-  --foreground-rgb: 15, 23, 42;
-  --background-rgb: 248, 250, 252;
+  --foreground-rgb: 30, 41, 59;
+  --background-rgb: 226, 232, 240;
   --primary-rgb: 14, 165, 233;
   --primary-500: 14, 165, 233;
   --primary-400: 56, 189, 248;
@@ -24,7 +24,7 @@ body {
 }
 
 .light .bg-dark-bg {
-  background-color: #f8fafc;
+  background-color: #cbd5e1;
   background-image: url('/background.png');
   background-size: cover;
   background-position: center;
@@ -58,7 +58,7 @@ body {
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(248, 250, 252, 0.7);
+  background: rgba(203, 213, 225, 0.85);
   backdrop-filter: blur(20px);
   z-index: 0;
 }
@@ -86,7 +86,7 @@ body {
 }
 
 .light ::-webkit-scrollbar-track {
-  background: rgba(241, 245, 249, 0.5);
+  background: rgba(203, 213, 225, 0.5);
 }
 
 ::-webkit-scrollbar-thumb {
@@ -219,9 +219,9 @@ body {
 }
 
 .light .glass-card {
-  background: rgba(255, 255, 255, 0.6);
-  border: 1px solid rgba(226, 232, 240, 0.5);
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.08);
+  background: rgba(255, 255, 255, 0.7);
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12);
 }
 
 /* Improved card hover effects */
@@ -334,7 +334,8 @@ body {
 }
 
 .light .sidebar-gradient {
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.95) 0%, rgba(248, 250, 252, 0.98) 100%);
+  background: linear-gradient(180deg, rgba(241, 245, 249, 0.95) 0%, rgba(226, 232, 240, 0.98) 100%);
+  border-right: 1px solid rgba(148, 163, 184, 0.2);
 }
 
 /* Loading skeleton */
@@ -347,4 +348,21 @@ body {
   );
   background-size: 200% 100%;
   animation: shimmer 1.5s infinite;
+}
+
+/* Light mode text improvements */
+.light .text-gray-400,
+.light .text-gray-500 {
+  color: #475569;
+}
+
+.light .text-gray-300 {
+  color: #64748b;
+}
+
+/* XP Progress bar */
+.xp-progress {
+  background: linear-gradient(90deg, #0ea5e9 0%, #8b5cf6 50%, #ec4899 100%);
+  background-size: 200% 100%;
+  animation: gradient-shift 3s ease infinite;
 }

@@ -6,6 +6,7 @@ from app.models.user import User
 from app.models.note import Note
 from app.schemas.note import NoteCreate, NoteUpdate, NoteResponse
 from app.core.security import get_current_user
+from app.api.v1.endpoints.users import add_xp
 
 router = APIRouter(prefix="/notes", tags=["notes"])
 
@@ -32,6 +33,10 @@ def create_note(
     db.add(note)
     db.commit()
     db.refresh(note)
+    
+    add_xp(current_user, db, "create_note", 3, note.id, "note")
+    db.commit()
+    
     return note
 
 

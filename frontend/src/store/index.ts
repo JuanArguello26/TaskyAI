@@ -1,10 +1,11 @@
 import { create } from 'zustand';
-import { Task, Note, Event, Habit, Reminder, DashboardSummary, ProductivityHistory, MotivationalQuote } from '@/types';
-import { tasks, notes, events, habits, reminders, dashboard, auth } from '@/lib/api';
+import { Task, Note, Event, Habit, Reminder, DashboardSummary, ProductivityHistory, MotivationalQuote, UserWithXP } from '@/types';
+import { tasks, notes, events, habits, reminders, dashboard, auth, users } from '@/lib/api';
 
 interface AppState {
   isAuthenticated: boolean;
-  currentView: 'dashboard' | 'tasks' | 'calendar' | 'notes' | 'habits' | 'ai' | 'reminders';
+  currentView: 'dashboard' | 'tasks' | 'calendar' | 'notes' | 'habits' | 'ai' | 'reminders' | 'settings';
+  user: UserWithXP | null;
   tasks: Task[];
   notes: Note[];
   events: Event[];
@@ -19,6 +20,11 @@ interface AppState {
   login: (email: string, password: string) => Promise<void>;
   register: (email: string, name: string, password: string) => Promise<void>;
   logout: () => void;
+  
+  fetchUser: () => Promise<void>;
+  updateUser: (name: string) => Promise<void>;
+  changePassword: (currentPassword: string, newPassword: string) => Promise<void>;
+  deleteAccount: () => Promise<void>;
   
   fetchTasks: () => Promise<void>;
   createTask: (task: Partial<Task>) => Promise<void>;
@@ -51,6 +57,7 @@ interface AppState {
 export const useStore = create<AppState>((set, get) => ({
   isAuthenticated: false,
   currentView: 'dashboard',
+  user: null,
   tasks: [],
   notes: [],
   events: [],
@@ -66,6 +73,7 @@ export const useStore = create<AppState>((set, get) => ({
   login: async (email, password) => {
     await auth.login(email, password);
     set({ isAuthenticated: true });
+    await get().fetchUser();
     await get().fetchDashboard();
   },
   
@@ -78,6 +86,7 @@ export const useStore = create<AppState>((set, get) => ({
     auth.logout();
     set({
       isAuthenticated: false,
+      user: null,
       tasks: [],
       notes: [],
       events: [],
@@ -87,6 +96,25 @@ export const useStore = create<AppState>((set, get) => ({
       productivityHistory: null,
       quote: null,
     });
+  },
+  
+  fetchUser: async () => {
+    const user = await users.me();
+    set({ user });
+  },
+  
+  updateUser: async (name) => {
+    await users.update(name);
+    await get().fetchUser();
+  },
+  
+  changePassword: async (currentPassword, newPassword) => {
+    await users.changePassword(currentPassword, newPassword);
+  },
+  
+  deleteAccount: async () => {
+    await users.delete();
+    get().logout();
   },
   
   fetchTasks: async () => {

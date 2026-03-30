@@ -11,6 +11,8 @@ class User(Base):
     email = Column(String(255), unique=True, index=True, nullable=False)
     password_hash = Column(String(255), nullable=False)
     name = Column(String(255), nullable=False)
+    experience = Column(Integer, default=0)
+    level = Column(Integer, default=1)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     tasks = relationship("Task", back_populates="user")
@@ -19,3 +21,4 @@ class User(Base):
     habits = relationship("Habit", back_populates="user")
     reminders = relationship("Reminder", back_populates="user")
     productivity_logs = relationship("ProductivityLog", back_populates="user")
+    xp_history = relationship("XPHistory", back_populates="user")
