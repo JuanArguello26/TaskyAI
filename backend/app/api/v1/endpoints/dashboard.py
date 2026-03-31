@@ -13,10 +13,12 @@ from app.core.security import get_current_user
 
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
 
+import random
+
 QUOTES_LOW = [
     "Cada día es una oportunidad para empezar de nuevo.",
     "El éxito no es la meta, es el camino que recorres.",
-    "Pequeños pasos führen a grandes cambios.",
+    "Pequeños pasos llevan a grandes cambios.",
     "No esperes a sentirte motivado, empieza y la motivación vendrá.",
     "Hoy es un buen día para hacer algo increíble.",
     "El único modo de hacer un gran trabajo es amar lo que haces.",
@@ -25,7 +27,7 @@ QUOTES_LOW = [
     "Tu potencial no tiene límites, solo tus creencias.",
     "Cada mañana tienes una oportunidad de ser mejor que ayer.",
     "El progreso siempre supera la perfección.",
-    "Los giant leaps comienzan con pequeños pasos.",
+    "Los grandes saltos comienzan con pequeños pasos.",
     "Hoy es el día perfecto para comenzar algo nuevo.",
     "La disciplina es el puente entre tus sueños y tus logros.",
     "No esperes a mañana lo que puedes hacer hoy.",
@@ -46,7 +48,7 @@ QUOTES_MEDIUM = [
     "Mantén el ritmo, los resultados están por llegar.",
     "Estás construyendo el hábito del éxito.",
     "La grandeza se construye día a día.",
-    "Tu dedication está dando frutos.",
+    "Tu dedicación está dando frutos.",
     "Cada paso cuenta en este viaje.",
     "Estás más cerca de tus metas de lo que crees.",
     "El trabajo duro supera al talento cuando el talento no trabaja duro.",
@@ -54,9 +56,9 @@ QUOTES_MEDIUM = [
     "Estás en el camino correcto, no pares ahora.",
     "Tus hábitos de hoy son tus resultados de mañana.",
     "El éxito es la suma de pequeños esfuerzos repetidos.",
-    "Continúa pushing forward, estás haciendo progreso.",
+    "Continúa avanzando, estás haciendo progreso.",
     "La energía que pones hoy, verás sus frutos mañana.",
-    "Mantén el enfoque, los resultados te sorprenderán."
+    "Mantén el enfoque, los resultados te sorprendrán."
 ]
 
 QUOTES_HIGH = [
@@ -66,7 +68,7 @@ QUOTES_HIGH = [
     "Los resultados hablan por sí mismos.",
     "¡Eres una máquina de productividad!",
     "¡Tu racha está en llamas! Sigue así.",
-    "El mundo no puede stop a alguien que no se rinde.",
+    "El mundo no puede detener a alguien que no se rinde.",
     "¡Estás viviendo tu mejor versión!",
     "Tus hábitos son tu superpoder.",
     "La productividad te está transformando.",
@@ -130,17 +132,24 @@ def get_dashboard_summary(
     
     productivity_score = calculate_productivity_score(tasks_completed, habits_completed, len(habits))
     
+    habit_logs = db.query(HabitLog).join(Habit).filter(
+        Habit.user_id == current_user.id,
+        HabitLog.is_completed == True
+    ).order_by(HabitLog.date.desc()).all()
+    
     streak = 0
     check_date = today
+    completed_dates = {log.date for log in habit_logs}
+    total_habits_count = len(habits)
+    
     while True:
-        day_habits = db.query(HabitLog).join(Habit).filter(
-            Habit.user_id == current_user.id,
-            HabitLog.date == check_date,
-            HabitLog.is_completed == True
-        ).count()
-        if day_habits == len(habits) and len(habits) > 0:
-            streak += 1
-            check_date -= timedelta(days=1)
+        if check_date in completed_dates:
+            logs_for_day = [log for log in habit_logs if log.date == check_date]
+            if len(logs_for_day) >= total_habits_count and total_habits_count > 0:
+                streak += 1
+                check_date -= timedelta(days=1)
+            else:
+                break
         else:
             break
     
@@ -162,24 +171,35 @@ def get_productivity_history(
     current_user: User = Depends(get_current_user)
 ):
     today = date.today()
-    result = []
     
+    total_habits = db.query(Habit).filter(Habit.user_id == current_user.id).count()
+    
+    start_date = today - timedelta(days=days - 1)
+    
+    tasks_completed_list = db.query(Task.completed_at).filter(
+        Task.user_id == current_user.id,
+        Task.status == TaskStatus.COMPLETED,
+        Task.completed_at >= datetime.combine(start_date, datetime.min.time())
+    ).all()
+    completed_dates = {t.completed_at.date() for t in tasks_completed_list}
+    
+    habit_logs = db.query(HabitLog.date).join(Habit).filter(
+        Habit.user_id == current_user.id,
+        HabitLog.date >= start_date,
+        HabitLog.is_completed == True
+    ).all()
+    habit_completed_dates = {}
+    for log in habit_logs:
+        if log.date not in habit_completed_dates:
+            habit_completed_dates[log.date] = 0
+        habit_completed_dates[log.date] += 1
+    
+    result = []
     for i in range(days - 1, -1, -1):
         check_date = today - timedelta(days=i)
         
-        tasks_completed = db.query(Task).filter(
-            Task.user_id == current_user.id,
-            Task.status == TaskStatus.COMPLETED,
-            Task.completed_at >= datetime.combine(check_date, datetime.min.time())
-        ).count()
-        
-        habits_completed = db.query(HabitLog).join(Habit).filter(
-            Habit.user_id == current_user.id,
-            HabitLog.date == check_date,
-            HabitLog.is_completed == True
-        ).count()
-        
-        total_habits = db.query(Habit).filter(Habit.user_id == current_user.id).count()
+        tasks_completed = 1 if check_date in completed_dates else 0
+        habits_completed = habit_completed_dates.get(check_date, 0)
         
         score = calculate_productivity_score(tasks_completed, habits_completed, total_habits)
         
@@ -216,13 +236,10 @@ def get_motivational_quote(
     score = calculate_productivity_score(tasks_completed, habits_completed, total_habits)
     
     if score < 30:
-        import random
         quote = random.choice(QUOTES_LOW)
     elif score < 70:
-        import random
         quote = random.choice(QUOTES_MEDIUM)
     else:
-        import random
         quote = random.choice(QUOTES_HIGH)
     
     return MotivationalQuote(text=quote)

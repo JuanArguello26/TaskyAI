@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from typing import List
+from typing import List, Any
 from datetime import datetime
 from app.db.session import get_db
 from app.models.user import User
@@ -10,6 +10,19 @@ from app.core.security import get_current_user
 from app.api.v1.endpoints.users import add_xp, can_complete_for_xp
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
+
+
+def _enum_to_value(v: Any) -> Any:
+    if hasattr(v, 'value'):
+        return v.value
+    return v
+
+
+def _dict_convert_enums(data: dict) -> dict:
+    result = {}
+    for k, v in data.items():
+        result[k] = _enum_to_value(v)
+    return result
 
 
 @router.get("", response_model=List[TaskResponse])
@@ -30,7 +43,8 @@ def create_task(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    task = Task(**task_data.model_dump(), user_id=current_user.id)
+    task_dict = _dict_convert_enums(task_data.model_dump())
+    task = Task(**task_dict, user_id=current_user.id)
     db.add(task)
     db.commit()
     db.refresh(task)
