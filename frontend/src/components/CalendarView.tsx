@@ -441,10 +441,16 @@ export default function CalendarView() {
                   const reminderHour = parseISO(reminder.remind_at).getHours();
                   return reminderHour === hour;
                 });
+                const dayTasks = getTasksForDay(day).filter(task => {
+                  if (!task.due_date) return false;
+                  const taskHour = parseISO(task.due_date).getHours();
+                  return taskHour === hour;
+                });
                 const allItems = [
                   ...dayEvents.map(e => ({ ...e, type: 'event' })),
                   ...dayHabits.map(h => ({ ...h, type: 'habit' })),
-                  ...dayReminders.map(r => ({ ...r, type: 'reminder' }))
+                  ...dayReminders.map(r => ({ ...r, type: 'reminder' })),
+                  ...dayTasks.map(t => ({ ...t, type: 'task' }))
                 ];
                 
                 return (
@@ -460,6 +466,8 @@ export default function CalendarView() {
                             ? 'bg-orange-500/20 text-orange-400 border-orange-500/30'
                             : item.type === 'reminder'
                             ? 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30'
+                            : item.type === 'task'
+                            ? 'bg-purple-500/20 text-purple-400 border-purple-500/30'
                             : 'bg-blue-500/20 text-blue-400 border-blue-500/30'
                         }`}
                         onClick={() => handleItemClick(item, item.type)}
@@ -481,9 +489,9 @@ export default function CalendarView() {
                             </button>
                           )}
                         </div>
-                        {item.type !== 'habit' && item.start_time && (
+                        {(item.type === 'event' || item.type === 'task') && (item.start_time || item.due_date) && (
                           <span className="text-[10px] opacity-70">
-                            {format(parseISO(item.start_time), 'HH:mm')}
+                            {format(parseISO(item.start_time || item.due_date), 'HH:mm')}
                           </span>
                         )}
                         {item.type === 'habit' && item.start_time && (
