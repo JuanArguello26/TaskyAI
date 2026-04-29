@@ -109,7 +109,4 @@ def can_complete_for_xp(user_id: int, item_id: int, item_type: str, db: Session)
         XPHistory.created_at >= twenty_four_hours_ago
     ).first()
     
-    if recent_creation:
-        return False
-    
-    return True
+    return not recent_creation

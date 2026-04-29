@@ -7,7 +7,7 @@ export default function XPBar() {
   
   if (!user) return null;
   
-  const totalXPForLevel = user.level * user.level * 100;
+  const totalXPForLevel = 100 * Math.pow(user.level, 1.5);
   const progress = (user.experience / totalXPForLevel) * 100;
   
   return (
