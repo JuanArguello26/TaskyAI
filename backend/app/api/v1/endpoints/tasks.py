@@ -1,10 +1,11 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from typing import List, Any
-from datetime import datetime
+from datetime import datetime, timedelta
 from app.db.session import get_db
 from app.models.user import User
 from app.models.task import Task, SubTask, TaskStatus
+from app.models.reminder import Reminder
 from app.schemas.task import TaskCreate, TaskUpdate, TaskResponse, TaskStatusUpdate, SubTaskCreate
 from app.core.security import get_current_user
 from app.api.v1.endpoints.users import add_xp, can_complete_for_xp
@@ -37,6 +38,22 @@ def list_tasks(
     return query.order_by(Task.created_at.desc()).all()
 
 
+def _create_task_reminder(task: Task, db: Session, user_id: int):
+    if task.due_date and task.due_date > datetime.utcnow().isoformat():
+        due_date = datetime.fromisoformat(task.due_date.replace('Z', '+00:00'))
+        reminder_time = due_date - timedelta(minutes=30)
+        
+        if reminder_time > datetime.utcnow():
+            reminder = Reminder(
+                user_id=user_id,
+                title=f"Recordatorio: {task.title}",
+                description=task.description or "Tarea pendiente",
+                remind_at=reminder_time,
+                related_task_id=task.id
+            )
+            db.add(reminder)
+
+
 @router.post("", response_model=TaskResponse)
 def create_task(
     task_data: TaskCreate,
@@ -48,6 +65,9 @@ def create_task(
     db.add(task)
     db.commit()
     db.refresh(task)
+    
+    _create_task_reminder(task, db, current_user.id)
+    db.commit()
     
     add_xp(current_user, db, "create_task", 5, task.id, "task")
     db.commit()
