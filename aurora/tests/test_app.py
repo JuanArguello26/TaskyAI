@@ -14,7 +14,7 @@ os.environ.pop("RENDER_EXTERNAL_URL", None)
 import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
-from app import bot, models, tg_api  # noqa: E402
+from app import bot, models, security, tg_api  # noqa: E402
 from app import services as S  # noqa: E402
 from app.db import Base, SessionLocal, engine  # noqa: E402
 from app.main import app  # noqa: E402
@@ -27,6 +27,9 @@ def fresh(monkeypatch):
     Base.metadata.drop_all(engine)
     Base.metadata.create_all(engine)
     S.invalidate()
+    security.per_client.reset()
+    security.global_web.reset()
+    security.global_bot.reset()
     SENT.clear()
     monkeypatch.setattr(tg_api, "send", lambda chat, text, kb=None: SENT.append((str(chat), text)))
     monkeypatch.setattr(tg_api, "call", lambda method, **kw: {"ok": True})
@@ -230,3 +233,79 @@ def test_index_served():
     with TestClient(app) as c:
         assert "Aurora" in c.get("/").text
         assert c.get("/static/app.js").status_code == 200
+
+
+# ---------------------------------------------------------------- auditoría
+
+def test_login_rate_limited():
+    with TestClient(app) as c:
+        for _ in range(5):
+            assert c.post("/api/login", json={"pin": "0000"}).status_code == 401
+        assert c.post("/api/login", json={"pin": "4321"}).status_code == 429
+
+
+def test_bot_pin_rate_limited():
+    for _ in range(5):
+        assert "incorrecto" in tg("/start 0000 X", chat=7)
+    assert "Demasiados" in tg("/start 4321 X", chat=7)
+
+
+def test_rejects_bad_numbers(client):
+    tg("/start 4321 Juan", chat=1)
+    tg("/comida nan", chat=1)
+    db = SessionLocal()
+    assert all(e.amount is None for e in db.query(models.Entry))
+    db.close()
+    assert "Ejemplo" in tg("/temp inf", chat=1)
+    assert client.post("/api/entries", json={"kind": "feed", "amount": -5}).status_code == 422
+
+
+def test_invalid_date_message_in_spanish():
+    tg("/start 4321 Juan", chat=1)
+    assert "no existe" in tg("/control 31/02 9:00 Pediatra", chat=1)
+
+
+def test_patch_rejects_end_before_start(client):
+    e = client.post("/api/entries", json={"kind": "sleep", "start": "2026-01-01T10:00:00Z",
+                                          "end": "2026-01-01T11:00:00Z"}).json()
+    r = client.patch(f"/api/entries/{e['id']}", json={"kind": "sleep", "start": e["start"],
+                                                       "end": "2026-01-01T09:00:00Z"})
+    assert r.status_code == 422
+
+
+def test_bot_error_gets_friendly_reply(monkeypatch):
+    tg("/start 4321 Juan", chat=1)
+    monkeypatch.setattr(bot, "handle_command", lambda *a: 1 / 0)
+    assert "Algo falló" in tg("/estado", chat=1)
+
+
+def test_bot_plain_text_and_past_sleep():
+    tg("/start 4321 Juan", chat=1)
+    assert "popó" in tg("popó", chat=1)
+    assert "30 ml" in tg("tetero 30", chat=1)
+    assert "pecho izquierdo" in tg("pecho izq", chat=1)
+    assert "No te entendí" in tg("hola", chat=1)
+    now_l = S.to_local(S.now_utc())
+    a = (now_l - timedelta(hours=3)).strftime("%H:%M")
+    b = (now_l - timedelta(hours=2)).strftime("%H:%M")
+    assert "1 h 00 min" in tg(f"/sueno {a} {b}", chat=1)
+    assert "futuro" in tg(f"/sueno {a} 5h", chat=1)
+
+
+def test_newborn_ml_buttons():
+    labels = [b["text"] for row in bot.ml_keyboard() for b in row]
+    assert labels[:4] == ["5 ml", "10 ml", "15 ml", "20 ml"]
+
+
+def test_stale_tick_does_not_hide_new_reminder(client, monkeypatch):
+    """Si alguien escribe mientras corre el tick, no se debe guardar un 'próximo aviso' viejo."""
+    real = S._compute_next
+
+    def slow(db, now):
+        r = real(db, now)
+        S.invalidate()  # simula una escritura concurrente
+        return r
+    monkeypatch.setattr(S, "_compute_next", slow)
+    client.get("/cron/tick?key=cronkey")
+    monkeypatch.setattr(S, "_compute_next", real)
+    assert client.get("/cron/tick?key=cronkey").json()["checked"] is True

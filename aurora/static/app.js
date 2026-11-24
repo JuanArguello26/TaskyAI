@@ -37,7 +37,7 @@ function toast(msg) {
   t.textContent = msg;
   t.classList.remove("hidden");
   clearTimeout(toast._t);
-  toast._t = setTimeout(() => t.classList.add("hidden"), 2600);
+  toast._t = setTimeout(() => t.classList.add("hidden"), msg.length > 40 ? 6000 : 2600);
 }
 
 // ------------------------------------------------------------ tiempo
@@ -46,12 +46,17 @@ function dur(ms) {
   const m = Math.floor(ms / 60000);
   if (m < 1) return "< 1 min";
   const h = Math.floor(m / 60);
-  if (h >= 24) return `${Math.floor(h / 24)} d ${h % 24} h`;
+  if (h >= 24) return h % 24 ? `${Math.floor(h / 24)} d ${h % 24} h` : `${h / 24} d`;
   return h ? `${h} h ${pad(m % 60)} min` : `${m} min`;
 }
 function clock(ms) {
   const s = Math.max(0, Math.floor(ms / 1000));
   return `${Math.floor(s / 3600)}:${pad(Math.floor(s / 60) % 60)}:${pad(s % 60)}`;
+}
+function every(min) {
+  if (min === 1440) return "todos los días";
+  if (min === 10080) return "cada semana";
+  return "cada " + dur(min * 60000);
 }
 const hhmm = (d) => `${pad(d.getHours())}:${pad(d.getMinutes())}`;
 function when(iso) {
@@ -148,7 +153,7 @@ function renderStatus() {
   }
   if (s.reminders.length) {
     html += "<h2>Recordatorios</h2><div class='list'>" + s.reminders.map((r) =>
-      `<div class="item"><div class="body"><div>⏰ ${esc(r.text)}</div><div class="sub">${esc(when(r.due_at))}${r.repeat_minutes ? " · cada " + dur(r.repeat_minutes * 60000) : ""}</div></div></div>`).join("") + "</div>";
+      `<div class="item"><div class="body"><div>⏰ ${esc(r.text)}</div><div class="sub">${esc(when(r.due_at))}${r.repeat_minutes ? " · " + every(r.repeat_minutes) : ""}</div></div></div>`).join("") + "</div>";
   }
   $("#home-agenda").innerHTML = html;
   tickClock();
@@ -163,7 +168,7 @@ function tickClock() {
     el.textContent = el.dataset.iso ? "hace " + dur(now - new Date(el.dataset.iso)) : "—";
   }
   const fe = s.last.feed;
-  $('.card[data-kind="feed"]').classList.toggle("warn", !!fe && now - new Date(fe.start) > 3 * 3600000);
+  $('.card[data-kind="feed"]').classList.toggle("warn", !!fe && s.feed_alert_hours > 0 && now - new Date(fe.start) > s.feed_alert_hours * 3600000);
 
   const card = $("#sleep-card"), btn = $("#sleep-btn");
   if (s.sleeping) {
@@ -219,7 +224,7 @@ function renderSheetBody() {
     h += `<label>${isBreast ? "Minutos (opcional)" : "Cantidad en ml"}
       <input id="amount" type="number" inputmode="decimal" step="any" min="0" value="${amount ?? ""}"></label>`;
     if (!isBreast) {
-      h += `<div class="ml-opts">${[30, 60, 90, 120].map((v) => `<button type="button" class="chip" data-ml="${v}">${v} ml</button>`).join("")}</div>`;
+      h += `<div class="ml-opts">${[5, 10, 15, 20, 30, 45, 60, 90].map((v) => `<button type="button" class="chip" data-ml="${v}">${v} ml</button>`).join("")}</div>`;
       h += opts("detail2", [["biberon", "Leche materna"], ["formula", "Fórmula"]], detail === "formula" ? "formula" : "biberon");
     }
   } else if (kind === "diaper") {
@@ -293,7 +298,9 @@ $("#sheet").addEventListener("submit", async (ev) => {
   try {
     if (sheet.id) await api(`/api/entries/${sheet.id}`, { method: "PATCH", body });
     else await api("/api/entries", { method: "POST", body });
-    toast("✅ Guardado");
+    if (kind === "temp" && amount >= 38) {
+      toast("⚠️ 38 °C o más en un recién nacido: llamen al pediatra o vayan a urgencias");
+    } else toast("✅ Guardado");
     closeSheet();
     await refresh();
   } catch (e) {
@@ -367,7 +374,7 @@ async function loadAgenda() {
     </div>`).join("")}</div>` : `<div class="empty">Sin controles agendados</div>`;
   $("#rems").innerHTML = rems.length ? `<div class="list">${rems.map((r) => `
     <div class="item">
-      <div class="body"><div>${esc(r.text)}</div><div class="sub">${esc(when(r.due_at))}${r.repeat_minutes ? " · cada " + dur(r.repeat_minutes * 60000) : ""}</div></div>
+      <div class="body"><div>${esc(r.text)}</div><div class="sub">${esc(when(r.due_at))}${r.repeat_minutes ? " · " + every(r.repeat_minutes) : ""}</div></div>
       <button class="btn mini danger" data-del-rem="${r.id}">🗑</button>
     </div>`).join("")}</div>` : `<div class="empty">Sin recordatorios activos</div>`;
 

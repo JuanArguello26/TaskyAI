@@ -47,7 +47,7 @@ def fmt_dur(seconds: float) -> str:
     h, m = divmod(minutes, 60)
     if h >= 24:
         d, h = divmod(h, 24)
-        return f"{d} d {h} h"
+        return f"{d} d {h} h" if h else (f"{d} días" if d > 1 else "1 día")
     return f"{h} h {m:02d} min" if h else f"{m} min"
 
 
@@ -370,6 +370,13 @@ def _parse_hhmm(tok: str) -> tuple[int, int] | None:
 
 
 def _parse_day(tok: str, today: date) -> date | None:
+    try:
+        return _parse_day_raw(tok, today)
+    except ValueError:
+        raise ValueError(f"La fecha {tok} no existe") from None
+
+
+def _parse_day_raw(tok: str, today: date) -> date | None:
     t = tok.lower()
     if t == "hoy":
         return today
@@ -441,11 +448,13 @@ def parse_when(text: str, allow_repeat: bool = True) -> tuple[datetime, int | No
 # es el próximo aviso. Todas las escrituras pasan por commit(), que borra ese valor.
 
 _next_check: datetime | None = None
+_generation = 0  # cambia con cada escritura; evita guardar un cálculo viejo
 
 
 def invalidate() -> None:
-    global _next_check
+    global _next_check, _generation
     _next_check = None
+    _generation += 1
 
 
 def commit(db: Session) -> None:
@@ -521,10 +530,13 @@ def tick(db_factory, force: bool = False) -> dict:
     now = now_utc()
     if not force and _next_check is not None and now < _next_check:
         return {"checked": False, "next": iso(_next_check)}
+    gen = _generation
     db = db_factory()
     try:
         sent = run_due(db, now)
-        _next_check = _compute_next(db, now)
-        return {"checked": True, "sent": sent, "next": iso(_next_check)}
+        nxt = _compute_next(db, now)
+        if gen == _generation:
+            _next_check = nxt
+        return {"checked": True, "sent": sent, "next": iso(nxt)}
     finally:
         db.close()

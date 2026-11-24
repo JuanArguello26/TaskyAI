@@ -59,6 +59,7 @@ cada minuto si toca mandar un recordatorio. Para eso:
 | `/comida 90` | Biberón de 90 ml (`/formula 90` para fórmula) |
 | `/pecho izq 15` | Pecho izquierdo 15 min |
 | `/dormir` · `/desperto` | Inicia / termina el sueño |
+| `/sueno 13:00 14:30` | Registra un sueño que ya pasó (o `/sueno 13:00 1h30m`) |
 | `/panal pipi` · `popo` · `ambos` | Pañal |
 | `/bano` · `/medicina Vitamina D` · `/temp 37.2` · `/peso 3.4` · `/nota …` | Otros registros |
 | `/hoy` | Todo lo registrado hoy |
@@ -68,6 +69,9 @@ cada minuto si toca mandar un recordatorio. Para eso:
 | `/deshacer` | Borra tu último registro (última hora) |
 | `/avisos` | Activa/desactiva avisos cuando el otro registra algo |
 
+**Sin "/" también funciona:** escribe `popó`, `pipí`, `ambos`, `tetero 30`, `30 ml`, `pecho izq 10`,
+`se durmió`, `se despertó`, `baño` o `estado`.
+
 **¿Se te olvidó registrar?** Agrega la hora al final: `/comida 60 hace 20m`, `/panal popo 14:10`, `/dormir 13:45`.
 
 Avisos automáticos:
@@ -76,6 +80,10 @@ Avisos automáticos:
 - Controles: 24 h y 2 h antes.
 
 ---
+
+## Seguridad
+- Usa un **PIN de 6 dígitos o más**. Tras 5 intentos fallidos (web o bot) se bloquea 15 min.
+- Usa el **mismo nombre** en la web y en Telegram, así no te llegan avisos de tus propios registros.
 
 ## Desarrollo local
 

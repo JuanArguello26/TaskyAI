@@ -1,17 +1,23 @@
 """Bot de Telegram: el asistente de la familia."""
 
 import hmac
+import logging
+import math
 import re
+import unicodedata
 from datetime import timedelta
 from html import escape
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from . import security
 from . import services as S
 from . import tg_api
 from .config import settings
 from .models import Appointment, Caregiver, Entry, Reminder
+
+log = logging.getLogger("aurora.bot")
 
 COMMANDS = [
     ("estado", "Resumen: última comida, sueño, pañal"),
@@ -20,6 +26,7 @@ COMMANDS = [
     ("pecho", "Pecho: /pecho izq 15 (min)"),
     ("dormir", "Se durmió (o /dormir 14:30)"),
     ("desperto", "Se despertó"),
+    ("sueno", "Sueño pasado: /sueno 13:00 14:30"),
     ("panal", "Pañal: /panal pipi | popo | ambos"),
     ("bano", "Baño"),
     ("medicina", "Medicina: /medicina Vitamina D"),
@@ -41,7 +48,7 @@ Toca /menu para los botones rápidos o usa comandos:
 
 🍼 /comida 90 — biberón de 90 ml
 🤱 /pecho izq 15 — pecho izquierdo 15 min
-😴 /dormir y /desperto
+😴 /dormir y /desperto · sueño pasado: /sueno 13:00 14:30
 🧷 /panal pipi · /panal popo · /panal ambos
 🛁 /bano · 💊 /medicina Paracetamol · 🌡️ /temp 37.2 · ⚖️ /peso 3.4
 📝 /nota lo que quieras
@@ -53,7 +60,11 @@ Toca /menu para los botones rápidos o usa comandos:
 ⏰ /recordar cada 3h dar pecho
 ⏰ /recordar mañana 8:00 llamar al pediatra
 📅 /control 01/12 9:30 Control pediatra | Clínica X
-📋 /estado · /hoy · /agenda · /deshacer"""
+📋 /estado · /hoy · /agenda · /deshacer
+
+<b>También puedes escribir sin "/":</b>
+<i>popó</i> · <i>pipí</i> · <i>ambos</i> · <i>tetero 30</i> · <i>30 ml</i> · <i>pecho izq</i> ·
+<i>se durmió</i> · <i>se despertó</i> · <i>baño</i> · <i>estado</i>"""
 
 
 def menu_keyboard(db: Session) -> list:
@@ -69,11 +80,14 @@ def menu_keyboard(db: Session) -> list:
         [{"text": "🛁 Baño", "callback_data": "log:bath:"},
          {"text": "📊 Estado", "callback_data": "status"},
          {"text": "📋 Hoy", "callback_data": "today"}],
+        [{"text": "📅 Agenda", "callback_data": "agenda"},
+         {"text": "❓ Ayuda", "callback_data": "help"}],
     ]
 
 
 def ml_keyboard() -> list:
-    vals = [30, 45, 60, 75, 90, 120, 150, 180]
+    # Recién nacido: ~5-7 ml el día 1, ~20-30 ml el día 3, ~45-60 ml a la semana.
+    vals = [5, 10, 15, 20, 30, 45, 60, 90]
     rows = [[{"text": f"{v} ml", "callback_data": f"ml:{v}"} for v in vals[i:i + 4]] for i in (0, 4)]
     rows.append([{"text": "Sin medir", "callback_data": "ml:0"}, {"text": "↩️ Menú", "callback_data": "menu"}])
     return rows
@@ -105,9 +119,10 @@ def split_time(text: str):
 
 def _float(tok: str) -> float | None:
     try:
-        return float(tok.replace(",", "."))
+        v = float(tok.replace(",", "."))
     except ValueError:
         return None
+    return v if math.isfinite(v) and v >= 0 else None
 
 
 def _caregiver(db: Session, chat_id: str) -> Caregiver | None:
@@ -132,6 +147,74 @@ def _sleep(db: Session, cg: Caregiver, chat_id: str, want: str | None, at=None) 
         return f"😴 Se durmió a las {S.fmt_time(e.start)}. Dulces sueños 🌙"
     S.notify_entry(db, e, verb="registró que se despertó", exclude_chat=chat_id)
     return f"😊 Se despertó. Durmió {S.fmt_dur((e.end - e.start).total_seconds())}"
+
+
+def _past_sleep(db: Session, cg: Caregiver, chat_id: str, args: str) -> str:
+    """/sueno 13:00 14:30  ó  /sueno 13:00 1h30m"""
+    toks = args.split()
+    usage = "Ejemplo: /sueno 13:00 14:30 (inicio y fin) o /sueno 13:00 1h30m"
+    if len(toks) < 2 or not (hm := S._parse_hhmm(toks[0])):
+        return usage
+    now_l = S.to_local(S.now_utc()).replace(tzinfo=None, second=0, microsecond=0)
+    start = now_l.replace(hour=hm[0], minute=hm[1])
+    if start > now_l:
+        start -= timedelta(days=1)
+    if hm2 := S._parse_hhmm(toks[1]):
+        end = start.replace(hour=hm2[0], minute=hm2[1])
+        if end <= start:
+            end += timedelta(days=1)
+    elif mins := S.parse_dur(toks[1]):
+        end = start + timedelta(minutes=mins)
+    else:
+        return usage
+    if end > now_l + timedelta(minutes=1):
+        return "Ese sueño termina en el futuro. Si está durmiendo ahora usa /dormir 13:00"
+    return _log(db, cg, chat_id, "sleep", start=S.local_to_utc(start), end=S.local_to_utc(end),
+                note=" ".join(toks[2:]) or None)
+
+
+# ------------------------------------------------------------------ texto libre (sin "/")
+
+def _norm(text: str) -> str:
+    t = unicodedata.normalize("NFKD", text.lower())
+    t = "".join(c for c in t if not unicodedata.combining(c))
+    t = re.sub(r"[¡!¿?.,;]+", " ", t)
+    return re.sub(r"\s+", " ", t).strip()
+
+
+_TIME_SUFFIX = re.compile(r"^(.*?)((?:\s+hace\s+\S+)|(?:\s+(?:a las\s+)?\d{1,2}:\d{2}))?$")
+_PLAIN = {
+    "pipi": ("panal", "pipi"), "pis": ("panal", "pipi"), "orino": ("panal", "pipi"),
+    "popo": ("panal", "popo"), "caca": ("panal", "popo"), "popis": ("panal", "popo"),
+    "ambos": ("panal", "ambos"), "pipi y popo": ("panal", "ambos"), "popo y pipi": ("panal", "ambos"),
+    "durmio": ("dormir", ""), "se durmio": ("dormir", ""), "dormida": ("dormir", ""), "a dormir": ("dormir", ""),
+    "desperto": ("desperto", ""), "se desperto": ("desperto", ""), "desperte": ("desperto", ""),
+    "bano": ("bano", ""), "se bano": ("bano", ""), "banada": ("bano", ""),
+    "estado": ("estado", ""), "resumen": ("estado", ""), "como va": ("estado", ""), "como esta": ("estado", ""),
+    "hoy": ("hoy", ""), "agenda": ("agenda", ""), "menu": ("menu", ""), "ayuda": ("ayuda", ""),
+    "deshacer": ("deshacer", ""),
+}
+_ML = re.compile(r"^(?:(?:tomo|comio)\s+)?(?:biberon|tetero|formula|leche|toma)?\s*(\d+(?:[.,]\d+)?)\s*(?:ml)?$")
+_ML_WORD = re.compile(r"^(?:(?:tomo|comio)\s+)?(biberon|tetero|formula|leche|toma)$")
+_BREAST = re.compile(r"^(?:dio\s+|tomo\s+)?(?:pecho|teta|seno)\s+(izq\S*|der\S*)(?:\s+(\d+)\s*(?:m|min|minutos)?)?$")
+
+
+def plain_to_command(text: str) -> tuple[str, str] | None:
+    """'popó hace 10m' -> ('panal', 'popo hace 10m'). None si no lo entiende."""
+    m = _TIME_SUFFIX.match(_norm(text))
+    base, suffix = m.group(1).strip(), (m.group(2) or "")
+    if base in _PLAIN:
+        cmd, args = _PLAIN[base]
+        return cmd, (args + suffix).strip()
+    if (mm := _ML.match(base)) and ("ml" in base or not base.replace(".", "").replace(",", "").isdigit()):
+        cmd = "formula" if "formula" in base else "comida"
+        return cmd, (mm.group(1) + suffix).strip()
+    if _ML_WORD.match(base):
+        return "comida", suffix.strip()
+    if mb := _BREAST.match(base):
+        side = "izq" if mb.group(1).startswith("izq") else "der"
+        return "pecho", f"{side} {mb.group(2) or ''}{suffix}".strip()
+    return None
 
 
 # ------------------------------------------------------------------ comandos
@@ -172,6 +255,8 @@ def handle_command(db: Session, cg: Caregiver, chat_id: str, cmd: str, args: str
         return _sleep(db, cg, chat_id, "sleep", at), menu_keyboard(db)
     if cmd in ("desperto", "despertar", "despierta"):
         return _sleep(db, cg, chat_id, "wake", at), menu_keyboard(db)
+    if cmd in ("sueno", "sueño", "siesta"):
+        return _past_sleep(db, cg, chat_id, args), None
     if cmd in ("panal", "pañal", "pipi", "popo"):
         det = cmd if cmd in ("pipi", "popo") else (a.split()[0].lower() if a.split() else "")
         det = {"pipí": "pipi", "popó": "popo", "caca": "popo", "ambas": "ambos", "los2": "ambos"}.get(det, det)
@@ -265,15 +350,21 @@ def handle_callback(db: Session, cg: Caregiver, chat_id: str, data: str):
         return S.status_text(db), menu_keyboard(db)
     if data == "today":
         return S.today_text(db), None
+    if data == "agenda":
+        return S.agenda_text(db), None
+    if data == "help":
+        return HELP, None
     if data == "sleep":
         return _sleep(db, cg, chat_id, None), menu_keyboard(db)
     if data == "feed:biberon":
         return "🍼 ¿Cuántos ml?", ml_keyboard()
     if data.startswith("ml:"):
-        ml = float(data[3:])
+        ml = _float(data[3:]) or 0
         return _log(db, cg, chat_id, "feed", detail="biberon", amount=ml or None), menu_keyboard(db)
-    if data.startswith("log:"):
+    if data.startswith("log:") and data.count(":") == 2:
         _, kind, detail = data.split(":", 2)
+        if kind not in ("feed", "diaper", "bath"):
+            return "🤔", None
         return _log(db, cg, chat_id, kind, detail=detail or None), menu_keyboard(db)
     return "🤔", None
 
@@ -282,9 +373,17 @@ def handle_callback(db: Session, cg: Caregiver, chat_id: str, data: str):
 
 def _link(db: Session, chat_id: str, args: str, first_name: str) -> str:
     toks = args.split()
-    if not toks or not hmac.compare_digest(toks[0], settings.family_pin):
-        return ("👋 Hola. Para vincularte escribe:\n<code>/start PIN TuNombre</code>\n"
-                "(el PIN familiar lo tienen papá y mamá)")
+    hello = ("👋 Hola. Para vincularte escribe:\n<code>/start PIN TuNombre</code>\n"
+             "(el PIN familiar lo tienen papá y mamá)")
+    if not toks:
+        return hello
+    key = "tg:" + chat_id
+    if security.per_client.blocked(key) or security.global_bot.blocked("bot"):
+        return "⛔ Demasiados intentos. Espera 15 minutos."
+    if not hmac.compare_digest(toks[0], settings.family_pin):
+        security.per_client.fail(key)
+        security.global_bot.fail("bot")
+        return "❌ PIN incorrecto.\n\n" + hello
     name = (" ".join(toks[1:]) or first_name or "Familia")[:60]
     db.add(Caregiver(name=name, chat_id=chat_id))
     S.commit(db)
@@ -293,7 +392,31 @@ def _link(db: Session, chat_id: str, args: str, first_name: str) -> str:
 
 
 def handle_update(db: Session, update: dict) -> None:
+    chat_id = None
+    try:
+        chat_id = _handle_update(db, update)
+    except Exception:
+        log.exception("Error en el bot")
+        db.rollback()
+        if chat_id is None:
+            chat_id = _chat_of(update)
+        if chat_id:
+            tg_api.send(chat_id, "😕 Algo falló con ese mensaje. Intenta de nuevo o usa /menu.")
+
+
+def _chat_of(update: dict) -> str | None:
+    try:
+        if cb := update.get("callback_query"):
+            return str(cb["message"]["chat"]["id"])
+        return str(update["message"]["chat"]["id"])
+    except (KeyError, TypeError):
+        return None
+
+
+def _handle_update(db: Session, update: dict) -> None:
     if cb := update.get("callback_query"):
+        if "message" not in cb:
+            return
         chat_id = str(cb["message"]["chat"]["id"])
         tg_api.call("answerCallbackQuery", callback_query_id=cb["id"])
         cg = _caregiver(db, chat_id)
@@ -315,8 +438,14 @@ def handle_update(db: Session, update: dict) -> None:
     if not text.startswith("/"):
         if not cg:
             tg_api.send(chat_id, _link(db, chat_id, "", first_name))
-        else:
-            tg_api.send(chat_id, "¿Qué registramos? (para guardar texto usa /nota …)", menu_keyboard(db))
+            return
+        parsed = plain_to_command(text)
+        if not parsed:
+            tg_api.send(chat_id, "No te entendí 🙈 Toca un botón, o usa /nota para guardar texto.",
+                        menu_keyboard(db))
+            return
+        reply, kb = handle_command(db, cg, chat_id, *parsed)
+        tg_api.send(chat_id, reply, kb)
         return
 
     head, _, args = text[1:].partition(" ")

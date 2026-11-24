@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from . import bot, models
+from . import bot, models, security
 from . import services as S
 from .config import settings
 from .db import Base, SessionLocal, engine, get_db
@@ -55,9 +55,19 @@ class LoginIn(BaseModel):
     pin: str
 
 
+def _client_ip(request: Request) -> str:
+    fwd = request.headers.get("x-forwarded-for", "")
+    return (fwd.split(",")[0].strip() or (request.client.host if request.client else "?"))
+
+
 @app.post("/api/login")
-def login(body: LoginIn):
+def login(body: LoginIn, request: Request):
+    ip_key = "ip:" + _client_ip(request)
+    if security.per_client.blocked(ip_key) or security.global_web.blocked("web"):
+        raise HTTPException(429, "Demasiados intentos. Espera 15 minutos.")
     if not hmac.compare_digest(body.pin.strip(), settings.family_pin):
+        security.per_client.fail(ip_key)
+        security.global_web.fail("web")
         raise HTTPException(401, "PIN incorrecto")
     return {"token": settings.web_token, "baby_name": settings.baby_name}
 
@@ -93,6 +103,7 @@ def status(db: Session = Depends(get_db)):
         "baby_name": settings.baby_name,
         "birth_date": b.isoformat() if b else None,
         "age": S.age_text(db),
+        "feed_alert_hours": settings.feed_alert_hours,
         "server_time": S.iso(S.now_utc()),
         "last": {
             "feed": _maybe(S.last_of(db, "feed")),
@@ -120,7 +131,7 @@ class EntryIn(BaseModel):
     start: str | None = None
     end: str | None = None
     detail: str | None = Field(default=None, max_length=80)
-    amount: float | None = None
+    amount: float | None = Field(default=None, ge=0, le=100000, allow_inf_nan=False)
     note: str | None = Field(default=None, max_length=2000)
 
 
@@ -164,6 +175,14 @@ def edit_entry(entry_id: int, body: EntryIn, db: Session = Depends(get_db)):
     if body.start:
         e.start = S.parse_iso(body.start)
     e.end = S.parse_iso(body.end) if body.end else (None if e.kind == "sleep" else e.start)
+    if e.end is not None and e.end < e.start:
+        db.rollback()
+        raise HTTPException(422, "El fin es antes del inicio")
+    if e.kind == "sleep" and e.end is None:
+        other = S.active_sleep(db)
+        if other and other.id != e.id:
+            db.rollback()
+            raise HTTPException(409, "Ya hay otro sueño en curso")
     e.detail, e.amount, e.note = body.detail or None, body.amount, (body.note or "").strip() or None
     S.commit(db)
     return entry_out(e)
