@@ -101,6 +101,13 @@ Avisos automáticos (por Telegram):
 
 ---
 
+## Correo (gratis, desde tu Gmail)
+En la web: **Ajustes → Correo** y sigue los 5 pasos (pegar un pequeño script en https://script.new).
+Llegan por correo los recordatorios, los controles (24 h y 2 h antes), la alerta de horas sin comer
+y un **resumen del día** a la hora que elijas. Gmail personal permite ~100 destinatarios al día.
+
+Los controles traen un botón **📅 Agregar a Google Calendar** (en Telegram y en la web).
+
 ## Seguridad
 - Usa un **PIN de 6 dígitos o más**. Tras 5 intentos fallidos (web o bot) se bloquea 15 min.
 - Usa el **mismo nombre** en la web y en Telegram, así no te llegan avisos de tus propios registros.

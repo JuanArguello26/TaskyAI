@@ -369,6 +369,7 @@ async function loadAgenda() {
   $("#appts").innerHTML = appts.length ? `<div class="list">${appts.map((a) => `
     <div class="item ${a.done ? "done" : ""}">
       <div class="body"><div>${esc(a.title)}</div><div class="sub">${esc(when(a.at))}${a.place ? " · " + esc(a.place) : ""}</div></div>
+      <a class="btn mini" href="${esc(a.calendar_url)}" target="_blank" rel="noopener" title="Agregar a Google Calendar">📅</a>
       <button class="btn mini" data-done="${a.id}">${a.done ? "↩️" : "✓"}</button>
       <button class="btn mini danger" data-del-appt="${a.id}">🗑</button>
     </div>`).join("")}</div>` : `<div class="empty">Sin controles agendados</div>`;
@@ -425,6 +426,7 @@ function renderSettings() {
        <button class="btn ${tg.connected ? "ghost" : "primary"} block" id="tg-connect">${tg.connected ? "Reconectar bot" : "🔗 Conectar bot de Telegram"}</button>
        <p>Luego abre el bot en Telegram y escribe:</p><p><code>/start PIN TuNombre</code></p>
        <p class="muted small">Vinculados: ${tg.caregivers.length ? tg.caregivers.map(esc).join(", ") : "nadie todavía"}</p>`;
+  loadEmail().catch((e) => toast(e.message));
   const btn = $("#tg-connect");
   if (btn) btn.addEventListener("click", async () => {
     btn.disabled = true;
@@ -433,6 +435,51 @@ function renderSettings() {
   });
   applyTheme();
 }
+// ------------------------------------------------------------ correo
+let emailScript = "";
+const hourSel = $("#eo-hour");
+for (let h = 0; h < 24; h++) {
+  const o = document.createElement("option");
+  o.value = h; o.textContent = `${h === 0 ? 12 : h > 12 ? h - 12 : h}:00 ${h < 12 ? "a. m." : "p. m."}`;
+  hourSel.appendChild(o);
+}
+async function loadEmail() {
+  const e = await api("/api/email");
+  emailScript = e.script;
+  $("#script-code").value = e.script;
+  $("#email-url").value = e.url || "";
+  $("#email-to").value = (e.to || []).join("\n");
+  for (const k of ["reminders", "appointments", "feed", "summary"]) $("#eo-" + k).checked = !!e.opts[k];
+  hourSel.value = String(e.opts.summary_hour);
+  $("#email-status").textContent = e.configured ? "✅ Correo conectado." : "Conecta tu Gmail para recibir los avisos también por correo (gratis).";
+  $("#email-steps").open = !e.configured;
+}
+function emailBody() {
+  return {
+    url: $("#email-url").value.trim() || null,
+    to: $("#email-to").value.split(/[\s,;]+/).map((x) => x.trim()).filter(Boolean),
+    opts: { reminders: $("#eo-reminders").checked, appointments: $("#eo-appointments").checked, feed: $("#eo-feed").checked,
+      summary: $("#eo-summary").checked, summary_hour: Number(hourSel.value) },
+  };
+}
+$("#copy-script").addEventListener("click", async () => {
+  try { await navigator.clipboard.writeText(emailScript); toast("📋 Código copiado"); }
+  catch { const t = $("#script-code"); t.classList.remove("hidden"); t.focus(); t.select(); toast("Selecciona y copia el código"); }
+});
+$("#email-save").addEventListener("click", async () => {
+  try { await api("/api/email", { method: "PUT", body: emailBody() }); toast("Guardado"); await loadEmail(); }
+  catch (e) { toast(e.message); }
+});
+$("#email-test").addEventListener("click", async (ev) => {
+  const b = ev.currentTarget; b.disabled = true;
+  try {
+    await api("/api/email", { method: "PUT", body: emailBody() });
+    await api("/api/email/test", { method: "POST" });
+    toast("✉️ Correo enviado. Revisa tu bandeja (y spam la primera vez).");
+    await loadEmail();
+  } catch (e) { toast(e.message); } finally { b.disabled = false; }
+});
+
 $("#save-settings").addEventListener("click", async () => {
   store.set("me", $("#set-me").value.trim());
   try {

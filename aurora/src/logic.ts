@@ -3,6 +3,7 @@
 import type { Env } from "./env";
 import * as T from "./time";
 import { tgSend } from "./tg";
+import { DEFAULT_OPTS, emailHtml, htmlToText, postEmail, type EmailCategory, type EmailOpts } from "./email";
 
 export const KINDS = ["feed", "sleep", "diaper", "bath", "medicine", "temp", "weight", "note"] as const;
 
@@ -307,6 +308,38 @@ export class App {
     return T.parseWhen(text, this.now(), this.tz, allowRepeat);
   }
 
+  // ------------------------------------------------------------ correo
+
+  async emailConfig(): Promise<{ url: string | null; to: string[]; opts: EmailOpts }> {
+    const [url, to, opts] = await Promise.all([this.kvGet("email_url"), this.kvGet("email_to"), this.kvGet("email_opts")]);
+    let list: string[] = [];
+    let o: EmailOpts = { ...DEFAULT_OPTS };
+    try { list = JSON.parse(to ?? "[]"); } catch { /* vacío */ }
+    try { o = { ...DEFAULT_OPTS, ...JSON.parse(opts ?? "{}") }; } catch { /* default */ }
+    return { url, to: Array.isArray(list) ? list : [], opts: o };
+  }
+
+  /** Envía un correo si está configurado y esa categoría está activada. */
+  async email(category: EmailCategory, subject: string, tgHtml: string): Promise<{ ok: boolean; error?: string }> {
+    const cfg = await this.emailConfig();
+    if (!cfg.url || !cfg.to.length) return { ok: false, error: "Correo no configurado" };
+    if (category !== "test" && !cfg.opts[category]) return { ok: false, error: "Categoría desactivada" };
+    const appUrl = await this.kvGet("app_url");
+    const html = emailHtml(subject, tgHtml, appUrl);
+    const res = await postEmail(this.env, cfg.url, { to: cfg.to, subject, html, text: htmlToText(tgHtml) });
+    if (!res.ok) console.warn("Correo falló", res.error);
+    return res;
+  }
+
+  /** Telegram a todos + correo (si aplica). */
+  async alert(category: EmailCategory, subject: string, tgHtml: string) {
+    await Promise.all([this.broadcast(tgHtml), this.email(category, subject, tgHtml)]);
+  }
+
+  async dailySummaryHtml(): Promise<string> {
+    return `${await this.statusText()}\n\n${await this.todayText()}\n\n${await this.agendaText()}`;
+  }
+
   // ------------------------------------------------------------ recordatorios automáticos (cron cada minuto)
 
   async tick(): Promise<string[]> {
@@ -325,7 +358,7 @@ export class App {
       } else {
         await this.db.prepare("UPDATE reminders SET active = 0 WHERE id = ?").bind(r.id).run();
       }
-      await this.broadcast(msg);
+      await this.alert("reminders", `⏰ Recordatorio: ${r.text}`, msg);
       sent.push(`reminder:${r.id}`);
     }
 
@@ -338,11 +371,13 @@ export class App {
       const place = a.place ? `\n📍 ${escapeHtml(a.place)}` : "";
       if (!a.notified_2h && left <= 2 * T.HOUR) {
         await this.db.prepare("UPDATE appointments SET notified_2h = 1, notified_24h = 1 WHERE id = ?").bind(a.id).run();
-        await this.broadcast(`📅 <b>Control en ${T.fmtDur(left / 1000)}:</b> ${escapeHtml(a.title)} (${this.fmtTime(a.at)})${place}`);
+        await this.alert("appointments", `🩺 Control en ${T.fmtDur(left / 1000)}: ${a.title}`,
+          `📅 <b>Control en ${T.fmtDur(left / 1000)}:</b> ${escapeHtml(a.title)} (${this.fmtTime(a.at)})${place}`);
         sent.push(`appt2h:${a.id}`);
       } else if (!a.notified_24h) {
         await this.db.prepare("UPDATE appointments SET notified_24h = 1 WHERE id = ?").bind(a.id).run();
-        await this.broadcast(`📅 <b>Próximo control:</b> ${escapeHtml(a.title)} — ${this.fmtTime(a.at)}${place}`);
+        await this.alert("appointments", `🩺 Próximo control: ${a.title} — ${this.fmtTime(a.at)}`,
+          `📅 <b>Próximo control:</b> ${escapeHtml(a.title)} — ${this.fmtTime(a.at)}${place}`);
         sent.push(`appt24h:${a.id}`);
       }
     }
@@ -351,10 +386,24 @@ export class App {
       const last = await this.lastOf("feed");
       if (last && now - last.start_at >= this.feedAlertHours * T.HOUR && (await this.kvGet("feed_alert_for")) !== String(last.id)) {
         await this.kvSet("feed_alert_for", String(last.id));
-        await this.broadcast(`🍼 Ya pasaron ${T.fmtDur((now - last.start_at) / 1000)} desde la última comida de `
+        const since = T.fmtDur((now - last.start_at) / 1000);
+        await this.alert("feed", `🍼 ${since} sin comer`, `🍼 Ya pasaron ${since} desde la última comida de `
           + `${escapeHtml(this.babyName)} (${this.fmtTime(last.start_at)}).`);
         sent.push(`feed_alert:${last.id}`);
       }
+    }
+
+    // resumen diario por correo, una vez al día a partir de la hora elegida
+    const nowN = T.toNaive(now, this.tz);
+    const today = new Date(nowN).toISOString().slice(0, 10);
+    const hour = new Date(nowN).getUTCHours();
+    const cfg = await this.emailConfig();
+    if (cfg.url && cfg.to.length && cfg.opts.summary && hour >= cfg.opts.summary_hour
+      && (await this.kvGet("summary_sent")) !== today) {
+      await this.kvSet("summary_sent", today);
+      const d = new Date(nowN).toLocaleDateString("es", { weekday: "long", day: "numeric", month: "long", timeZone: "UTC" });
+      await this.email("summary", `📋 Resumen de ${this.babyName} · ${d}`, await this.dailySummaryHtml());
+      sent.push(`summary:${today}`);
     }
 
     // limpieza ocasional de intentos de PIN viejos

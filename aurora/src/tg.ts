@@ -1,6 +1,6 @@
 import type { Env } from "./env";
 
-export type Button = { text: string; callback_data: string };
+export type Button = { text: string; callback_data: string } | { text: string; url: string };
 export type Keyboard = Button[][];
 /** Teclado inline (array) o cualquier reply_markup de Telegram (objeto). */
 export type Markup = Keyboard | Record<string, unknown> | null | undefined;

@@ -25,6 +25,7 @@ const AI_MAP = {
   "30": { actions: [] },
 };
 let AI_DOWN = false;
+const EMAILS = [];
 const tgServer = http.createServer((req, res) => {
   let data = "";
   req.on("data", (c) => (data += c));
@@ -42,6 +43,11 @@ const tgServer = http.createServer((req, res) => {
         return res.end(JSON.stringify({ choices: [{ message: { content: "```json\n" + JSON.stringify(out) + "\n```" } }] }));
       }
       return res.end(JSON.stringify({ response: "Hoy tomó 1 vez (8 ml de fórmula)." }));
+    }
+    if (req.url === "/gs") {
+      const d = JSON.parse(data);
+      EMAILS.push(d);
+      return res.end(JSON.stringify({ ok: true, quota: 99 }));
     }
     if (req.url.startsWith("/file/")) { res.setHeader("Content-Type", "audio/ogg"); return res.end(Buffer.from([1, 2, 3, 4])); }
     const method = req.url.split("/").pop();
@@ -404,6 +410,57 @@ test("nota de voz -> registro", async () => {
   const mine = SENT.slice(before).map((m) => m.text).join("\n");
   assert.match(mine, /hizo popó/);
   assert.equal((await api("/api/entries?kind=diaper")).data.length, 1);
+});
+
+test("correo: configurar, validar y probar", async () => {
+  const g = (await api("/api/email")).data;
+  assert.equal(g.configured, false);
+  assert.match(g.script, /const CLAVE = "[0-9a-f]{32}"/);
+  assert.equal((await api("/api/email", { method: "PUT", body: { url: "https://evil.example/x", to: ["a@b.co"] } })).status, 422);
+  assert.equal((await api("/api/email", { method: "PUT", body: { url: null, to: ["no-es-correo"] } })).status, 422);
+  const gs = `http://127.0.0.1:${TG_PORT}/gs`;
+  assert.equal((await api("/api/email", { method: "PUT", body: { url: gs, to: ["Papa@Gmail.com", "mama@gmail.com"], opts: {} } })).status, 200);
+  EMAILS.length = 0;
+  assert.equal((await api("/api/email/test", { method: "POST" })).status, 200);
+  assert.equal(EMAILS.length, 1);
+  assert.deepEqual(EMAILS[0].to, ["papa@gmail.com", "mama@gmail.com"]);
+  assert.equal(EMAILS[0].key, g.script.match(/CLAVE = "(\w+)"/)[1]);
+  assert.match(EMAILS[0].html, /Tasky/);
+});
+
+test("correo: recordatorios, controles y resumen diario", async () => {
+  await tg(`/start ${PIN} Juan`, 1);
+  const gs = `http://127.0.0.1:${TG_PORT}/gs`;
+  await api("/api/email", { method: "PUT", body: { url: gs, to: ["papa@gmail.com"], opts: { summary_hour: 0, feed: false } } });
+  await api("/api/reminders", { method: "POST", body: { text: "vitamina D", due_at: iso(MIN) } });
+  await api("/api/appointments", { method: "POST", body: { title: "Pediatra", at: iso(-HOUR) } });
+  EMAILS.length = 0;
+  await tick();
+  const subjects = EMAILS.map((e) => e.subject);
+  assert.ok(subjects.some((x) => x.includes("Recordatorio: vitamina D")), subjects.join(" | "));
+  assert.ok(subjects.some((x) => x.includes("Control en")), subjects.join(" | "));
+  assert.ok(subjects.some((x) => x.startsWith("📋 Resumen de Aurora")), subjects.join(" | "));
+  EMAILS.length = 0;
+  await tick();
+  assert.equal(EMAILS.length, 0, "el resumen sale una sola vez al día");
+  // categoría desactivada: no manda correo (pero Telegram sí)
+  await api("/api/email", { method: "PUT", body: { url: gs, to: ["papa@gmail.com"], opts: { reminders: false, summary: false } } });
+  await api("/api/reminders", { method: "POST", body: { text: "solo telegram", due_at: iso(MIN) } });
+  SENT.length = 0;
+  await tick();
+  assert.equal(EMAILS.length, 0);
+  assert.ok(SENT.some((m) => m.text.includes("solo telegram")));
+});
+
+test("control trae botón de Google Calendar (bot y web)", async () => {
+  await tg(`/start ${PIN} Juan`, 1);
+  await tg("/control 01/12/2027 9:30 Pediatra | Clínica", 1);
+  const m = SENT[SENT.length - 1];
+  const urlBtn = m.kb.inline_keyboard.flat().find((b) => b.url);
+  assert.match(urlBtn.url, /^https:\/\/calendar\.google\.com\/calendar\/render\?action=TEMPLATE/);
+  assert.match(decodeURIComponent(urlBtn.url), /dates=20271201T143000Z\/20271201T153000Z/);
+  const [a] = (await api("/api/appointments")).data;
+  assert.match(a.calendar_url, /calendar\.google\.com/);
 });
 
 test("webhook rechaza secreto malo", async () => {

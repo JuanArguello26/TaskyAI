@@ -150,6 +150,41 @@
         <h2>Telegram</h2>
         <div class="panel" id="tg-info"></div>
 
+        <h2>Correo</h2>
+        <div class="panel form" id="email-panel">
+          <p class="small" id="email-status"></p>
+          <details id="email-steps">
+            <summary>📖 Cómo conectar tu Gmail (5 min, una sola vez, mejor desde el computador)</summary>
+            <ol class="steps">
+              <li>Abre <a href="https://script.new" target="_blank" rel="noopener">script.new</a> con tu cuenta de Google.</li>
+              <li>Borra lo que aparece y pega este código:
+                <button type="button" class="btn mini" id="copy-script">📋 Copiar código</button>
+                <textarea id="script-code" class="hidden" rows="6" readonly></textarea></li>
+              <li>Guarda (💾). Arriba, en la lista de funciones, elige <b>probar</b> y toca <b>▶ Ejecutar</b>.
+                Acepta los permisos (si dice <i>"Google no verificó esta app"</i>: <i>Configuración avanzada → Ir a…</i>). Te llegará un correo de prueba.</li>
+              <li>Toca <b>Implementar → Nueva implementación</b> → ⚙️ tipo <b>Aplicación web</b>.
+                Ejecutar como: <b>Yo</b>. Quién tiene acceso: <b>Cualquier usuario</b>. → <b>Implementar</b>.</li>
+              <li>Copia la <b>URL de la aplicación web</b> (termina en <code>/exec</code>) y pégala aquí abajo.</li>
+            </ol>
+          </details>
+          <label>URL de la aplicación web de Google
+            <input id="email-url" inputmode="url" placeholder="https://script.google.com/macros/s/…/exec">
+          </label>
+          <label>Correos (uno por línea, máximo 5)
+            <textarea id="email-to" rows="2" placeholder="tu@gmail.com&#10;esposa@gmail.com"></textarea>
+          </label>
+          <div class="label">¿Qué enviar por correo?</div>
+          <label class="check"><input type="checkbox" id="eo-reminders"> ⏰ Recordatorios</label>
+          <label class="check"><input type="checkbox" id="eo-appointments"> 🩺 Controles médicos (24 h y 2 h antes)</label>
+          <label class="check"><input type="checkbox" id="eo-feed"> 🍼 Alerta de muchas horas sin comer</label>
+          <label class="check"><input type="checkbox" id="eo-summary"> 📋 Resumen del día a las
+            <select id="eo-hour" class="inline"></select></label>
+          <div class="sheet-actions">
+            <button type="button" class="btn ghost grow" id="email-test">✉️ Probar</button>
+            <button type="button" class="btn primary grow" id="email-save">Guardar</button>
+          </div>
+        </div>
+
         <h2>Tema</h2>
         <div class="chips" id="theme-chips">
           <button class="chip" data-theme="">Automático</button>

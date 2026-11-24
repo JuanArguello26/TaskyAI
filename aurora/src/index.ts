@@ -2,6 +2,7 @@ import { handleUpdate, setupWebhook, timingSafeEqual } from "./bot";
 import { HttpError, type Env } from "./env";
 import { App, Appointment, Entry, escapeHtml, KINDS, Reminder } from "./logic";
 import { tgEnabled } from "./tg";
+import { DEFAULT_OPTS, emailKey, googleCalendarUrl, hmacHex, isEmail, scriptCode, validScriptUrl } from "./email";
 import * as T from "./time";
 
 // ------------------------------------------------------------------ utilidades
@@ -9,11 +10,6 @@ import * as T from "./time";
 const json = (data: unknown, status = 200) =>
   new Response(JSON.stringify(data), { status, headers: { "Content-Type": "application/json; charset=utf-8" } });
 
-async function hmacHex(key: string, msg: string): Promise<string> {
-  const k = await crypto.subtle.importKey("raw", new TextEncoder().encode(key), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
-  const sig = await crypto.subtle.sign("HMAC", k, new TextEncoder().encode(msg));
-  return [...new Uint8Array(sig)].map((b) => b.toString(16).padStart(2, "0")).join("");
-}
 
 // Cambiar el PIN o la SECRET_KEY invalida todas las sesiones.
 const webToken = (env: Env) => hmacHex(env.SECRET_KEY, "web:" + env.FAMILY_PIN);
@@ -61,7 +57,10 @@ function idOf(s: string): number {
   return Number(s);
 }
 
-const apptOut = (a: Appointment) => ({ id: a.id, title: a.title, at: T.iso(a.at), place: a.place, notes: a.notes, done: !!a.done });
+const apptOut = (a: Appointment) => ({
+  id: a.id, title: a.title, at: T.iso(a.at), place: a.place, notes: a.notes, done: !!a.done,
+  calendar_url: googleCalendarUrl(a.title, a.at, a.place),
+});
 const remOut = (r: Reminder) => ({ id: r.id, text: r.text, due_at: T.iso(r.due_at), repeat_minutes: r.repeat_minutes, active: !!r.active });
 
 // ------------------------------------------------------------------ rutas
@@ -123,6 +122,7 @@ async function route(req: Request, env: Env, ctx: ExecutionContext): Promise<Res
   let m: RegExpMatchArray | null;
 
   if (path === "/api/status" && method === "GET") {
+    if ((await app.kvGet("app_url")) !== url.origin) await app.kvSet("app_url", url.origin);
     const s = await app.daySummary();
     const { entries: _omit, ...today } = s;
     const out = async (e: Promise<Entry | null>) => { const x = await e; return x ? app.entryOut(x) : null; };
@@ -299,6 +299,43 @@ async function route(req: Request, env: Env, ctx: ExecutionContext): Promise<Res
       appointments: a.results.map(apptOut),
       reminders: r.results.map(remOut),
     });
+  }
+
+  // ---------------- correo (Gmail vía Apps Script)
+  if (path === "/api/email" && method === "GET") {
+    const cfg = await app.emailConfig();
+    return json({ configured: !!(cfg.url && cfg.to.length), url: cfg.url, to: cfg.to, opts: cfg.opts,
+      script: scriptCode(await emailKey(env), app.babyName) });
+  }
+
+  if (path === "/api/email" && method === "PUT") {
+    const b = await body(req);
+    const u = b.url ? String(b.url).trim() : null;
+    if (u && !validScriptUrl(env, u)) {
+      throw new HttpError(422, "La URL debe ser la de la aplicación web de Google: https://script.google.com/macros/s/…/exec");
+    }
+    const to = (Array.isArray(b.to) ? b.to : []).map((x: unknown) => String(x).trim().toLowerCase()).filter(Boolean);
+    const bad = to.find((x: string) => !isEmail(x));
+    if (bad) throw new HttpError(422, `Correo inválido: ${bad}`);
+    if (to.length > 5) throw new HttpError(422, "Máximo 5 correos");
+    const o = b.opts ?? {};
+    const hour = Number(o.summary_hour ?? DEFAULT_OPTS.summary_hour);
+    const opts = {
+      reminders: o.reminders !== false, appointments: o.appointments !== false, feed: o.feed !== false,
+      summary: o.summary !== false, summary_hour: Number.isInteger(hour) && hour >= 0 && hour <= 23 ? hour : 21,
+    };
+    await app.kvSet("email_url", u);
+    await app.kvSet("email_to", JSON.stringify([...new Set(to)]));
+    await app.kvSet("email_opts", JSON.stringify(opts));
+    return json({ ok: true });
+  }
+
+  if (path === "/api/email/test" && method === "POST") {
+    const res = await app.email("test", `✅ Tasky ya puede enviarte correos`,
+      `¡Hola! Este es un correo de prueba de <b>Tasky</b>, el asistente de <b>${escapeHtml(app.babyName)}</b>.\n\n`
+      + `Aquí te llegarán los recordatorios, los controles médicos, las alertas de comida y el resumen del día.`);
+    if (!res.ok) throw new HttpError(502, "No se pudo enviar: " + (res.error ?? "error desconocido"));
+    return json({ ok: true });
   }
 
   if (path === "/api/telegram/setup" && method === "POST") {

@@ -10,6 +10,7 @@
  */
 
 import { aiEnabled, answer, interpret, transcribe, type Action } from "./ai";
+import { googleCalendarUrl } from "./email";
 import { App, Caregiver, Entry, escapeHtml as esc } from "./logic";
 import { tgCall, tgDownload, tgEdit, tgSend, type Keyboard, type Markup } from "./tg";
 import * as T from "./time";
@@ -441,7 +442,8 @@ async function insertAppointment(app: App, cg: Caregiver, chatId: string, title:
     .bind(t, at, place?.slice(0, 160) || null, cg.name).first<{ id: number }>();
   await app.broadcast(`📅 ${esc(cg.name)} agendó: ${esc(t)} — ${app.fmtTime(at)}`, { excludeChat: chatId, onlySubscribed: true });
   return [`🩺 Agendado: <b>${esc(t)}</b> — ${app.fmtTime(at)}${place ? `\n📍 ${esc(place)}` : ""}\nLes recuerdo 24 h y 2 h antes.`,
-    [[{ text: "🗑️ Borrar control", callback_data: `rmappt:${a!.id}` }]]];
+    [[{ text: "📅 Agregar a Google Calendar", url: googleCalendarUrl(`${t} (${app.babyName})`, at, place) }],
+      [{ text: "🗑️ Borrar control", callback_data: `rmappt:${a!.id}` }]]];
 }
 
 /** Recordatorio desde texto: primero formato fijo ("30m vitamina"); si no, IA. */
