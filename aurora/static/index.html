@@ -1,0 +1,210 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Aurora</title>
+  <meta name="theme-color" content="#1b1a2e">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" href="/static/icon-192.png">
+  <link rel="apple-touch-icon" href="/static/icon-192.png">
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <!-- Login -->
+  <section id="login" class="screen hidden">
+    <div class="login-card">
+      <div class="login-moon">🌙</div>
+      <h1 class="baby-name">Aurora</h1>
+      <p class="muted">Diario de la bebé</p>
+      <form id="login-form">
+        <label>PIN familiar
+          <input id="pin" type="password" inputmode="numeric" autocomplete="current-password" required>
+        </label>
+        <label>¿Quién eres?
+          <input id="me" type="text" placeholder="Ej: Juan" maxlength="60" required>
+        </label>
+        <div class="chips" id="me-chips">
+          <button type="button" class="chip" data-me="Papá">Papá</button>
+          <button type="button" class="chip" data-me="Mamá">Mamá</button>
+        </div>
+        <button class="btn primary block" type="submit">Entrar</button>
+        <p id="login-error" class="error"></p>
+      </form>
+    </div>
+  </section>
+
+  <!-- App -->
+  <section id="app" class="screen hidden">
+    <header class="top">
+      <div>
+        <h1 class="baby-name">Aurora</h1>
+        <p class="muted" id="age"></p>
+      </div>
+      <button class="icon-btn" id="refresh" aria-label="Actualizar">↻</button>
+    </header>
+
+    <main>
+      <!-- INICIO -->
+      <div class="tab" id="tab-home">
+        <div class="sleep-card" id="sleep-card">
+          <div>
+            <div class="sleep-label" id="sleep-label">—</div>
+            <div class="sleep-timer" id="sleep-timer">—</div>
+            <div class="muted small" id="sleep-sub"></div>
+          </div>
+          <button class="btn sleep-btn" id="sleep-btn">😴 Se durmió</button>
+        </div>
+        <button class="link small" id="past-sleep">+ Registrar un sueño que ya pasó</button>
+
+        <div class="cards">
+          <div class="card" data-kind="feed"><div class="card-k">🍼 Última comida</div><div class="card-v" data-ago="feed">—</div><div class="card-s" data-sub="feed"></div></div>
+          <div class="card" data-kind="diaper"><div class="card-k">🧷 Último pañal</div><div class="card-v" data-ago="diaper">—</div><div class="card-s" data-sub="diaper"></div></div>
+          <div class="card" data-kind="poop"><div class="card-k">💩 Última popó</div><div class="card-v" data-ago="poop">—</div><div class="card-s" data-sub="poop"></div></div>
+          <div class="card" data-kind="bath"><div class="card-k">🛁 Último baño</div><div class="card-v" data-ago="bath">—</div><div class="card-s" data-sub="bath"></div></div>
+        </div>
+
+        <h2>Registrar</h2>
+        <div class="actions">
+          <button class="action" data-new="feed" data-detail="biberon"><span>🍼</span>Biberón</button>
+          <button class="action" data-new="feed" data-detail="pecho_izq"><span>🤱</span>Pecho</button>
+          <button class="action" data-new="diaper"><span>🧷</span>Pañal</button>
+          <button class="action" data-new="bath"><span>🛁</span>Baño</button>
+          <button class="action" data-new="medicine"><span>💊</span>Medicina</button>
+          <button class="action" data-new="temp"><span>🌡️</span>Temp.</button>
+          <button class="action" data-new="weight"><span>⚖️</span>Peso</button>
+          <button class="action" data-new="note"><span>📝</span>Nota</button>
+        </div>
+
+        <h2>Hoy</h2>
+        <div class="today" id="today"></div>
+
+        <div id="home-agenda"></div>
+      </div>
+
+      <!-- HISTORIAL -->
+      <div class="tab hidden" id="tab-history">
+        <div class="chips scroll" id="filters">
+          <button class="chip on" data-filter="">Todo</button>
+          <button class="chip" data-filter="feed">🍼 Comidas</button>
+          <button class="chip" data-filter="sleep">😴 Sueño</button>
+          <button class="chip" data-filter="diaper">🧷 Pañales</button>
+          <button class="chip" data-filter="bath">🛁 Baños</button>
+          <button class="chip" data-filter="medicine">💊</button>
+          <button class="chip" data-filter="temp">🌡️</button>
+          <button class="chip" data-filter="weight">⚖️</button>
+          <button class="chip" data-filter="note">📝</button>
+        </div>
+        <div id="history"></div>
+        <button class="btn block ghost" id="more">Ver más días</button>
+      </div>
+
+      <!-- AGENDA -->
+      <div class="tab hidden" id="tab-agenda">
+        <h2>📅 Controles y citas</h2>
+        <form class="panel form" id="appt-form">
+          <input name="title" placeholder="Ej: Control pediatra, Vacuna BCG" required maxlength="120">
+          <input name="at" type="datetime-local" required>
+          <input name="place" placeholder="Lugar (opcional)" maxlength="160">
+          <button class="btn primary" type="submit">Agendar</button>
+        </form>
+        <div id="appts"></div>
+
+        <h2>⏰ Recordatorios</h2>
+        <form class="panel form" id="rem-form">
+          <input name="text" placeholder="Ej: Vitamina D, sacar leche" required maxlength="200">
+          <input name="due_at" type="datetime-local" required>
+          <select name="repeat">
+            <option value="">Una sola vez</option>
+            <option value="60">Cada 1 hora</option>
+            <option value="120">Cada 2 horas</option>
+            <option value="180">Cada 3 horas</option>
+            <option value="240">Cada 4 horas</option>
+            <option value="360">Cada 6 horas</option>
+            <option value="480">Cada 8 horas</option>
+            <option value="720">Cada 12 horas</option>
+            <option value="1440">Todos los días</option>
+            <option value="10080">Cada semana</option>
+          </select>
+          <button class="btn primary" type="submit">Crear</button>
+        </form>
+        <div id="rems"></div>
+        <p class="muted small">Los recordatorios llegan por Telegram a papá y mamá.</p>
+      </div>
+
+      <!-- AJUSTES -->
+      <div class="tab hidden" id="tab-settings">
+        <h2>Ajustes</h2>
+        <div class="panel form">
+          <label>Tu nombre (aparece en los registros)
+            <input id="set-me" maxlength="60">
+          </label>
+          <label>Fecha de nacimiento
+            <input id="set-birth" type="date">
+          </label>
+          <button class="btn primary" id="save-settings">Guardar</button>
+        </div>
+
+        <h2>Telegram</h2>
+        <div class="panel" id="tg-info"></div>
+
+        <h2>Tema</h2>
+        <div class="chips" id="theme-chips">
+          <button class="chip" data-theme="">Automático</button>
+          <button class="chip" data-theme="light">Claro</button>
+          <button class="chip" data-theme="dark">Oscuro</button>
+        </div>
+
+        <h2>Datos</h2>
+        <div class="panel row-gap">
+          <button class="btn ghost" id="export">⬇️ Descargar respaldo (JSON)</button>
+          <button class="btn ghost danger" id="logout">Cerrar sesión</button>
+        </div>
+      </div>
+    </main>
+
+    <nav class="bottom">
+      <button class="nav on" data-tab="home"><span>🏠</span>Inicio</button>
+      <button class="nav" data-tab="history"><span>📋</span>Historial</button>
+      <button class="nav" data-tab="agenda"><span>📅</span>Agenda</button>
+      <button class="nav" data-tab="settings"><span>⚙️</span>Ajustes</button>
+    </nav>
+  </section>
+
+  <!-- Hoja de registro -->
+  <div class="sheet-bg hidden" id="sheet-bg"></div>
+  <form class="sheet hidden" id="sheet">
+    <div class="sheet-head">
+      <h3 id="sheet-title">Registrar</h3>
+      <button type="button" class="icon-btn" id="sheet-close" aria-label="Cerrar">✕</button>
+    </div>
+    <div id="sheet-body"></div>
+    <div class="when">
+      <div class="label">¿Cuándo?</div>
+      <div class="chips" id="when-chips">
+        <button type="button" class="chip on" data-ago="0">Ahora</button>
+        <button type="button" class="chip" data-ago="5">hace 5 min</button>
+        <button type="button" class="chip" data-ago="15">hace 15</button>
+        <button type="button" class="chip" data-ago="30">hace 30</button>
+        <button type="button" class="chip" data-ago="60">hace 1 h</button>
+      </div>
+      <input type="datetime-local" id="when-input">
+      <div id="end-wrap" class="hidden">
+        <div class="label">¿Hasta cuándo?</div>
+        <input type="datetime-local" id="end-input">
+      </div>
+    </div>
+    <input id="note-input" placeholder="Nota (opcional)" maxlength="2000">
+    <div class="sheet-actions">
+      <button type="button" class="btn ghost danger hidden" id="sheet-delete">Borrar</button>
+      <button type="submit" class="btn primary grow" id="sheet-save">Guardar</button>
+    </div>
+  </form>
+
+  <div class="toast hidden" id="toast"></div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

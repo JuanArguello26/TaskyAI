@@ -1,0 +1,29 @@
+# Blueprint de Render: New > Blueprint > selecciona este repo.
+services:
+  - type: web
+    name: aurora-bebe
+    runtime: python
+    plan: free
+    rootDir: aurora
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT --proxy-headers
+    healthCheckPath: /healthz
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.7
+      - key: DATABASE_URL
+        sync: false
+      - key: FAMILY_PIN
+        sync: false
+      - key: TELEGRAM_TOKEN
+        sync: false
+      - key: SECRET_KEY
+        generateValue: true
+      - key: CRON_KEY
+        generateValue: true
+      - key: APP_TZ
+        value: America/Bogota
+      - key: BABY_NAME
+        value: Aurora
+      - key: FEED_ALERT_HOURS
+        value: "3"
