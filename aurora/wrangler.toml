@@ -1,0 +1,33 @@
+name = "aurora"
+main = "src/index.ts"
+compatibility_date = "2026-11-01"
+
+# La web (HTML/CSS/JS) se sirve directo desde Cloudflare; no gasta solicitudes del Worker.
+[assets]
+directory = "./public"
+binding = "ASSETS"
+
+# Base de datos donde se guarda todo lo de la bebé.
+# Tras `npx wrangler d1 create aurora-db`, pega aquí el database_id que te muestra.
+[[d1_databases]]
+binding = "DB"
+database_name = "aurora-db"
+database_id = "PEGA-AQUI-EL-ID-DE-TU-BASE"
+migrations_dir = "migrations"
+
+# Revisa recordatorios, controles y alertas de comida cada minuto.
+[triggers]
+crons = ["* * * * *"]
+
+[vars]
+APP_TZ = "America/Bogota"
+BABY_NAME = "Aurora"
+FEED_ALERT_HOURS = "3"
+
+# Secretos (NO van aquí). Se cargan con:
+#   npx wrangler secret put FAMILY_PIN
+#   npx wrangler secret put SECRET_KEY
+#   npx wrangler secret put TELEGRAM_TOKEN
+
+[observability]
+enabled = true

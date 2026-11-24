@@ -3,50 +3,70 @@
 App web + bot de Telegram para que papá y mamá registren comidas, sueño, pañales, baños,
 medicinas, temperatura y peso, agenden controles y reciban recordatorios.
 
-**Todo gratis:** Render (hosting) · Neon (Postgres) · cron-job.org (recordatorios) · Telegram.
+**Todo gratis y en un solo lugar: Cloudflare** (Workers + base de datos D1 + cron).
+No se duerme, no necesita pings externos y los despliegues no gastan minutos de compilación.
+
+```
+📱 Celulares (web + Telegram)
+        │
+        ▼
+Cloudflare (tu cuenta)
+  ⚙️ Worker "aurora"      → API, página web, bot, cron cada minuto
+  🗄️ D1 "aurora-db"       → registros, citas, recordatorios, cuidadores, ajustes
+```
 
 ---
 
-## Despliegue (≈ 20 minutos)
+## Despliegue (≈ 15 minutos, desde esta carpeta)
 
-### 1. Base de datos — Neon (gratis)
-1. Entra a https://neon.tech y crea una cuenta (con GitHub o Google; no pide tarjeta).
-2. Crea un proyecto llamado `aurora` (región: la más cercana, ej. `AWS US East`).
-3. En **Connection string** copia la URL que empieza con `postgresql://…?sslmode=require`.
-   Esa es tu `DATABASE_URL`. Las tablas se crean solas al arrancar.
+```bash
+cd aurora
+npm install
+```
 
-### 2. Bot de Telegram
-1. En Telegram habla con **@BotFather** → `/newbot` → ponle nombre (ej. *Aurora Bebé*) y usuario (ej. `aurora_arguello_bot`).
-2. Copia el **token** que te da. Ese es tu `TELEGRAM_TOKEN`.
+### 1. Cuenta de Cloudflare
+Crea una cuenta gratis en https://dash.cloudflare.com/sign-up (no pide tarjeta) y luego:
+```bash
+npx wrangler login          # abre el navegador para autorizar
+```
 
-### 3. Hosting — Render (gratis)
-1. Entra a https://render.com con tu cuenta de GitHub.
-2. **New → Blueprint** → elige el repo `TaskyAI` (rama `aurora`). Render lee `render.yaml`.
-3. Te pedirá 3 valores:
-   - `DATABASE_URL` → la de Neon
-   - `FAMILY_PIN` → el PIN que usarán tú y tu esposa (ej. 6 dígitos)
-   - `TELEGRAM_TOKEN` → el de BotFather
-4. Deploy. Cuando termine tendrás una URL tipo `https://aurora-bebe.onrender.com`.
-   El webhook de Telegram se configura solo al arrancar.
+### 2. Base de datos
+```bash
+npx wrangler d1 create aurora-db
+```
+Copia el `database_id` que aparece y pégalo en `wrangler.toml` (donde dice `PEGA-AQUI-EL-ID-DE-TU-BASE`).
+Luego crea las tablas:
+```bash
+npm run db:migrate
+```
 
-> Si cambias de zona horaria, edita `APP_TZ` (ej. `America/Santiago`, `America/Mexico_City`).
+### 3. Bot de Telegram
+En Telegram habla con **@BotFather** → `/newbot` → nombre (ej. *Aurora Bebé*) y usuario (ej. `aurora_familia_bot`).
+Guarda el **token**.
 
-### 4. Recordatorios — cron-job.org (gratis)
-Render gratis "se duerme" tras 15 min sin visitas y además alguien tiene que revisar
-cada minuto si toca mandar un recordatorio. Para eso:
+### 4. Secretos
+```bash
+npx wrangler secret put FAMILY_PIN       # PIN de 6+ dígitos para ti y tu esposa
+npx wrangler secret put SECRET_KEY       # cualquier texto largo y aleatorio
+npx wrangler secret put TELEGRAM_TOKEN   # el token de BotFather
+```
+(Te pide el valor; no queda guardado en ningún archivo.)
 
-1. En Render → tu servicio → **Environment**, copia el valor de `CRON_KEY`.
-2. Entra a https://cron-job.org, crea cuenta y **Create cronjob**:
-   - URL: `https://TU-APP.onrender.com/cron/tick?key=TU_CRON_KEY`
-   - Horario: **cada 1 minuto**
-3. Listo. Ese ping mantiene la app despierta y dispara los avisos.
-   La app recuerda en memoria cuándo toca el próximo aviso, así que la mayoría de pings
-   **no tocan la base de datos** (Neon puede dormir y no gastas horas gratis).
+> Si el primer `secret put` dice que el Worker no existe, haz primero el paso 5 y vuelve.
 
-### 5. Vincular a papá y mamá
-- **Web:** abre la URL en el celular, entra con el PIN y tu nombre.
-  En el menú del navegador → *Agregar a pantalla de inicio* para tenerla como app.
-- **Telegram:** abre tu bot y escribe `/start TUPIN Juan` (tu esposa: `/start TUPIN SuNombre`).
+### 5. Publicar
+```bash
+npm run deploy
+```
+Te da una URL tipo `https://aurora.TU-USUARIO.workers.dev`.
+
+### 6. Conectar el bot y vincularse
+1. Abre la URL en el celular → entra con el PIN y tu nombre.
+2. **Ajustes → 🔗 Conectar bot de Telegram** (una sola vez).
+3. En Telegram, abre tu bot y escribe `/start TUPIN Juan`. Tu esposa: `/start TUPIN SuNombre`.
+4. En el navegador del celular: menú → **Agregar a pantalla de inicio**.
+
+¡Listo! El cron de Cloudflare revisa cada minuto los recordatorios, controles y alertas de comida.
 
 ---
 
@@ -54,9 +74,9 @@ cada minuto si toca mandar un recordatorio. Para eso:
 
 | Comando | Qué hace |
 |---|---|
-| `/menu` | Botones rápidos (biberón, pecho, dormir/despertar, pañal, baño) |
+| `/menu` | Botones rápidos (biberón, pecho, dormir/despertar, pañal, baño, agenda) |
 | `/estado` | Última comida, sueño, pañal, baño y resumen del día |
-| `/comida 90` | Biberón de 90 ml (`/formula 90` para fórmula) |
+| `/comida 30` | Biberón de 30 ml (`/formula 30` para fórmula) |
 | `/pecho izq 15` | Pecho izquierdo 15 min |
 | `/dormir` · `/desperto` | Inicia / termina el sueño |
 | `/sueno 13:00 14:30` | Registra un sueño que ya pasó (o `/sueno 13:00 1h30m`) |
@@ -69,15 +89,15 @@ cada minuto si toca mandar un recordatorio. Para eso:
 | `/deshacer` | Borra tu último registro (última hora) |
 | `/avisos` | Activa/desactiva avisos cuando el otro registra algo |
 
-**Sin "/" también funciona:** escribe `popó`, `pipí`, `ambos`, `tetero 30`, `30 ml`, `pecho izq 10`,
-`se durmió`, `se despertó`, `baño` o `estado`.
+**Sin "/" también funciona:** `popó`, `pipí`, `ambos`, `tetero 30`, `30 ml`, `pecho izq 10`,
+`se durmió`, `se despertó`, `baño`, `estado`.
 
-**¿Se te olvidó registrar?** Agrega la hora al final: `/comida 60 hace 20m`, `/panal popo 14:10`, `/dormir 13:45`.
+**¿Se te olvidó registrar?** Agrega la hora: `/comida 20 hace 20m`, `/panal popo 14:10`, `/dormir 13:45`.
 
-Avisos automáticos:
+Avisos automáticos (por Telegram):
 - Cuando uno registra algo, al otro le llega un aviso (desactivable con `/avisos`).
-- Si pasan **3 h** sin comer (`FEED_ALERT_HOURS`), avisa a ambos.
-- Controles: 24 h y 2 h antes.
+- Si pasan **3 h** sin comer (`FEED_ALERT_HOURS` en `wrangler.toml`), avisa a ambos.
+- Controles: 24 h y 2 h antes. Recordatorios: a la hora indicada.
 
 ---
 
@@ -85,30 +105,22 @@ Avisos automáticos:
 - Usa un **PIN de 6 dígitos o más**. Tras 5 intentos fallidos (web o bot) se bloquea 15 min.
 - Usa el **mismo nombre** en la web y en Telegram, así no te llegan avisos de tus propios registros.
 
-## Desarrollo local
+## Respaldos
+- Web: Ajustes → **Descargar respaldo (JSON)**.
+- Base completa: `npm run backup` (crea `respaldo-aurora.sql`).
+- Ver las tablas: panel de Cloudflare → Storage & Databases → D1 → `aurora-db`.
 
-```bash
-cd aurora
-python3 -m venv .venv && .venv/bin/pip install -r requirements.txt pytest
-FAMILY_PIN=1111 .venv/bin/uvicorn app.main:app --reload   # http://localhost:8000
-.venv/bin/python -m pytest -q
-```
-
-Sin `DATABASE_URL` usa SQLite local (`aurora.db`). Sin `TELEGRAM_TOKEN` el bot queda apagado.
-
-## Variables de entorno
-
+## Ajustes en `wrangler.toml`
 | Variable | Default | |
 |---|---|---|
-| `DATABASE_URL` | SQLite local | Cualquier Postgres (Neon, Aiven, etc.) |
-| `FAMILY_PIN` | `1234` | **Cámbialo.** Entrada web y vinculación del bot |
-| `SECRET_KEY` | — | Firma las sesiones (Render la genera) |
-| `CRON_KEY` | — | Protege `/cron/tick` (Render la genera) |
-| `TELEGRAM_TOKEN` | — | Token de BotFather |
 | `APP_TZ` | `America/Bogota` | Zona horaria de la familia |
 | `BABY_NAME` | `Aurora` | |
 | `FEED_ALERT_HOURS` | `3` | `0` para desactivar |
-| `PUBLIC_URL` | `RENDER_EXTERNAL_URL` | Solo si no usas Render |
 
-## Respaldo
-Ajustes → **Descargar respaldo (JSON)**, o `GET /api/export`.
+Tras cambiarlas: `npm run deploy`.
+
+## Desarrollo
+```bash
+npm test          # 20 pruebas: levanta el Worker real con D1 local y un Telegram falso
+npm run typecheck
+```

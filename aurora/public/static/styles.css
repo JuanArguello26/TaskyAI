@@ -222,3 +222,4 @@ nav.bottom {
   .actions, .today { grid-template-columns: repeat(2, 1fr); }
   .sleep-timer { font-size: 24px; }
 }
+#tg-info { display: grid; gap: 10px; } #tg-info p { margin: 0; }

@@ -421,8 +421,16 @@ function renderSettings() {
   const tg = s?.telegram;
   $("#tg-info").innerHTML = !tg?.enabled
     ? `<p class="muted">El bot no está configurado (falta <code>TELEGRAM_TOKEN</code> en el servidor).</p>`
-    : `<p>Abre el bot en Telegram y escribe:</p><p><code>/start PIN TuNombre</code></p>
+    : `${tg.connected ? `<p>✅ Bot conectado.</p>` : `<p>⚠️ El bot aún no está conectado.</p>`}
+       <button class="btn ${tg.connected ? "ghost" : "primary"} block" id="tg-connect">${tg.connected ? "Reconectar bot" : "🔗 Conectar bot de Telegram"}</button>
+       <p>Luego abre el bot en Telegram y escribe:</p><p><code>/start PIN TuNombre</code></p>
        <p class="muted small">Vinculados: ${tg.caregivers.length ? tg.caregivers.map(esc).join(", ") : "nadie todavía"}</p>`;
+  const btn = $("#tg-connect");
+  if (btn) btn.addEventListener("click", async () => {
+    btn.disabled = true;
+    try { await api("/api/telegram/setup", { method: "POST" }); toast("✅ Bot conectado"); await loadStatus(); renderSettings(); }
+    catch (e) { toast(e.message); btn.disabled = false; }
+  });
   applyTheme();
 }
 $("#save-settings").addEventListener("click", async () => {
