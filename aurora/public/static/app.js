@@ -219,7 +219,7 @@ function renderSheetBody() {
   const { kind, detail, amount } = sheet;
   let h = "";
   if (kind === "feed") {
-    h += opts("detail", [["pecho_izq", "🤱 Izq."], ["pecho_der", "🤱 Der."], ["biberon", "🍼 Biberón"]], detail === "formula" ? "biberon" : detail);
+    h += opts("detail", [["pecho_izq", "🤱 Izq."], ["pecho_der", "🤱 Der."], ["biberon", "🍼 Tetero"]], detail === "formula" ? "biberon" : detail);
     const isBreast = (detail || "").startsWith("pecho");
     h += `<label>${isBreast ? "Minutos (opcional)" : "Cantidad en ml"}
       <input id="amount" type="number" inputmode="decimal" step="any" min="0" value="${amount ?? ""}"></label>`;

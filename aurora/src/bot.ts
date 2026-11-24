@@ -351,7 +351,7 @@ say("notas", "", "notas", "mis notas", "ver notas", "lista");
 say("rutinas", "", "rutinas", "mis rutinas", "rutina");
 say("menu", "", "menu", "botones", "opciones");
 say("ayuda", "", "ayuda", "que puedes hacer", "como funciona", "comandos", "help", "instrucciones");
-say("deshacer", "", "deshacer", "borra eso", "borra lo ultimo", "me equivoque", "error", "eso no", "cancela eso");
+say("deshacer", "", "deshacer", "borra eso", "borra lo ultimo", "me equivoque", "cancela eso", "borralo");
 // Saludos
 say("hola", "", "hola", "ola", "hola tasky", "hola bot", "buenas", "buenos dias", "buen dia", "buenas tardes", "buenas noches", "hey", "holi", "que mas", "quiubo", "hola hola");
 say("gracias", "", "gracias", "muchas gracias", "gracias tasky", "mil gracias", "ok", "listo", "vale", "dale", "perfecto", "super");
@@ -777,7 +777,8 @@ async function runActions(app: App, cg: Caregiver, chatId: string, actions: Acti
           break;
         }
         case "diary": {
-          const text = String(x.text ?? original).trim().slice(0, 2000);
+          const raw = String(x.text ?? original).trim().slice(0, 2000);
+          const text = raw.charAt(0).toUpperCase() + raw.slice(1);
           const e = await save(app, cg, chatId, "note", { note: text, start: at });
           lines.push(`📖 <b>Al diario:</b> <i>${esc(text)}</i>`); ids.push(e.id);
           break;
@@ -841,6 +842,9 @@ async function runActions(app: App, cg: Caregiver, chatId: string, actions: Acti
   }
 
   const replies: Reply[] = [];
+  if (!lines.length && !warn && !extra.length) {
+    return [["No pude hacer eso 🙈 ¿Me lo dices de otra forma? También puedes usar los botones.", MAIN_KB]];
+  }
   if (lines.length || warn) {
     const text = [...lines, ...(warn ? ["", warn] : [])].join("\n");
     replies.push([text, ids.length ? afterKeyboard(ids, ids.length === 1) : null]);
@@ -910,7 +914,7 @@ async function handleCallback(app: App, cg: Caregiver, chatId: string, data: str
       const e = await app.getEntry(id);
       if (!e || !(mins > 0)) return;
       const start = e.created_at - mins * T.MIN;
-      const end = e.kind === "sleep" ? e.end_at : start;
+      const end = e.end_at === null ? null : e.end_at + (start - e.start_at);
       await app.db.prepare("UPDATE entries SET start_at = ?, end_at = ? WHERE id = ?").bind(start, end, id).run();
       const u = (await app.getEntry(id))!;
       return void (await edit(savedLine(app, u), [[{ text: "↩️ Deshacer", callback_data: `undo:${id}` }]]));
@@ -959,6 +963,11 @@ async function handleCallback(app: App, cg: Caregiver, chatId: string, data: str
     case "rsnz": {
       const r = await app.db.prepare("SELECT * FROM reminders WHERE id = ?").bind(Number(p[1])).first<any>();
       if (!r) return void (await edit("Ese recordatorio ya no existe."));
+      const snoozed = await app.kvGet(`snz:${r.id}`);
+      if (snoozed && app.now() - Number(snoozed.split("|")[0]) < 9 * T.MIN) {
+        return void (await edit(`⏰ ${esc(r.text)}\n<i>Ya lo pospuso ${esc(snoozed.split("|")[1] ?? "")}.</i>`));
+      }
+      await app.kvSet(`snz:${r.id}`, `${app.now()}|${cg.name}`);
       const n = await app.createReminder({ text: r.text, due: app.now() + 10 * T.MIN, author: cg.name, action: r.action });
       return void (await edit(`⏰ ${esc(r.text)}\n<i>Te lo recuerdo de nuevo a las ${app.fmtTime(n.due_at)}.</i>`));
     }
@@ -1090,7 +1099,7 @@ async function handleText(app: App, cg: Caregiver, chatId: string, text: string,
     case BTN.breast: return [["🤱 ¿Qué lado?", breastSideKeyboard()]];
     case BTN.sleep: return [await sleepReply(app, cg, chatId, null)];
     case BTN.diaper: return [["🧷 ¿Qué tenía el pañal?", diaperKeyboard()]];
-    case BTN.status: return [[await app.statusText(), null]];
+    case BTN.status: return [await handleCommand(app, cg, chatId, "estado", "")];
     case BTN.more: return [["¿Qué más necesitas?", moreKeyboard()]];
   }
 

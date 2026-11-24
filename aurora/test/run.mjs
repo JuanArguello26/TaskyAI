@@ -39,6 +39,7 @@ const AI_MAP = {
   "el control con la pediatra es el 2 de diciembre de 2027 a las 10 y media":
     { actions: [{ type: "appointment", date: "2027-12-02", time: "10:30", title: "Control con la pediatra", place: null }] },
   "30": { actions: [] },
+  "algo que la ia no sabe hacer": { actions: [{ type: "volar" }] },
   "tuvo hipo después de comer": { actions: [{ type: "diary", text: "Tuvo hipo después de comer" }] },
   "le hice masajes con aceite 10 minutos": { actions: [{ type: "activity", name: "masajes con aceite", amount: 10 }] },
   "recuérdame masajes con aceite todos los días a las 7 pm":
@@ -547,7 +548,9 @@ test("estado bonito y resumen del día a pedido", async () => {
   assert.deepEqual(kbData(st), ["sum", "m:today"]);
   const r = (await tgAll("resumen", 1)).pop();
   assert.match(r.text, /Resumen del día · Aurora/);
-  assert.match(r.text, /1 tomas/);
+  assert.match(r.text, /1 toma\b/);
+  assert.match(r.text, /1 cambio\b/);
+  assert.match(r.text, /(lunes|martes|miércoles|jueves|viernes|sábado|domingo) \d+ de \w+/);
   assert.match(r.text, /30 ml en tetero/);
   assert.match(r.text, /💩 1 popó/);
   assert.match((await tgAll("hoy", 1)).pop().text, /blockquote expandable/);
@@ -740,6 +743,40 @@ test("control trae botón de Google Calendar (bot y web)", async () => {
   assert.match(decodeURIComponent(urlBtn.url), /dates=20271201T143000Z\/20271201T153000Z/);
   const [a] = (await api("/api/appointments")).data;
   assert.match(a.calendar_url, /calendar\.google\.com/);
+});
+
+test("auditoría: correcciones", async () => {
+  await tg(`/start ${PIN} Juan`, 1);
+  await tg(`/start ${PIN} Maria`, 2);
+  // "Fue hace" sobre un sueño ya terminado mueve inicio y fin (no lo rompe)
+  const now = Date.now();
+  const local = (ms) => { const d = new Date(ms - 5 * HOUR); return `${String(d.getUTCHours()).padStart(2, "0")}:${String(d.getUTCMinutes()).padStart(2, "0")}`; };
+  const m = (await tgAll(`/sueno ${local(now - 2 * HOUR)} ${local(now - HOUR)}`, 1)).pop();
+  const ago = kbData(m).find((d) => d.startsWith("ago:") && d.endsWith(":60"));
+  await tgButton(ago, 1);
+  const [sl] = (await api("/api/entries?kind=sleep")).data;
+  assert.ok(Date.parse(sl.end) > Date.parse(sl.start), "fin después del inicio");
+  assert.match(sl.text, /1 h 00 min/, "conserva la duración");
+  // "error" ya no borra nada
+  await tg("popó", 1);
+  assert.doesNotMatch(await tg("error", 1), /Borrado/);
+  assert.equal((await api("/api/entries?kind=diaper")).data.length, 1);
+  // el botón ¿Cómo va? trae los botones de resumen
+  assert.deepEqual(kbData((await tgAll("📊 ¿Cómo va?", 1)).pop()), ["sum", "m:today"]);
+  // posponer: solo una vez aunque lo toquen los dos
+  const r = (await api("/api/reminders", { method: "POST", body: { text: "vitamina", due_at: iso(MIN) } })).data;
+  await tick();
+  await tgButton(`rsnz:${r.id}`, 1);
+  assert.match((await tgButton(`rsnz:${r.id}`, 2)).text, /Ya lo pospuso Juan/);
+  assert.equal((await api("/api/reminders")).data.length, 1);
+  // si la IA devuelve algo inútil, el bot igual responde
+  assert.match(await tg("algo que la ia no sabe hacer", 1), /No pude hacer eso/);
+  // "hoy" sin sueño no dice "1 min"
+  await fetch(BASE + "/__test/reset", { method: "POST" });
+  TOKEN = (await api("/api/login", { method: "POST", body: { pin: PIN }, auth: false })).data.token;
+  await tg(`/start ${PIN} Juan`, 1);
+  await tg("popó", 1);
+  assert.match((await tgAll("hoy", 1)).pop().text, /😴 0 min/);
 });
 
 test("todo el HTML enviado a Telegram es válido", async () => {

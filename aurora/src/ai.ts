@@ -59,7 +59,7 @@ export type Action = {
 
 const DAYS = ["domingo", "lunes", "martes", "miércoles", "jueves", "viernes", "sábado"];
 
-function interpretPrompt(app: App): string {
+export function interpretPrompt(app: App): string {
   const n = T.toNaive(app.now(), app.tz);
   const d = new Date(n);
   const date = d.toISOString().slice(0, 10);

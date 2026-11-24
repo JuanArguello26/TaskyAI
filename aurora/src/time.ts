@@ -25,10 +25,28 @@ function parts(ms: number, tz: string) {
   return { y: +o.year, m: +o.month, d: +o.day, h: +o.hour % 24, mi: +o.minute, s: +o.second };
 }
 
-/** UTC -> hora local "naive". */
+const offsetCache = new Map<string, number>();
+
+/** UTC -> hora local "naive". El desfase se cachea por cuarto de hora (los cambios de horario ocurren en punto). */
 export function toNaive(ms: number, tz: string): number {
-  const p = parts(ms, tz);
-  return Date.UTC(p.y, p.m - 1, p.d, p.h, p.mi, p.s) + (ms % 1000 + 1000) % 1000;
+  const key = `${tz}|${Math.floor(ms / 900_000)}`;
+  let off = offsetCache.get(key);
+  if (off === undefined) {
+    const p = parts(ms, tz);
+    off = Date.UTC(p.y, p.m - 1, p.d, p.h, p.mi, p.s) - Math.floor(ms / 1000) * 1000;
+    if (offsetCache.size > 5000) offsetCache.clear();
+    offsetCache.set(key, off);
+  }
+  return ms + off;
+}
+
+const DAYS_ES = ["domingo", "lunes", "martes", "miércoles", "jueves", "viernes", "sábado"];
+const MONTHS_ES = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"];
+
+/** "martes 25 de noviembre" a partir de un día "naive". */
+export function longDate(naive: number): string {
+  const d = new Date(naive);
+  return `${DAYS_ES[d.getUTCDay()]} ${d.getUTCDate()} de ${MONTHS_ES[d.getUTCMonth()]}`;
 }
 
 /** Hora local "naive" -> UTC. */

@@ -37,6 +37,7 @@ export function escapeHtml(s: unknown): string {
 }
 
 const num = (x: number) => String(+x.toFixed(2));
+const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 
 export class App {
   db: D1Database;
@@ -307,7 +308,7 @@ export class App {
     }
     if (rows[rows.length - 1]?.startsWith("<i>…")) rows.unshift(rows.pop()!);
     return `📋 <b>Hoy</b> · ${s.entries.length} registros\n`
-      + `🍼 ${s.feeds} tomas${s.feed_ml ? ` (${num(s.feed_ml)} ml)` : ""} · 🧷 ${s.diapers} pañales · 😴 ${T.fmtDur(Math.max(60, s.sleep_seconds))}\n`
+      + `🍼 ${plural(s.feeds, "toma", "tomas")}${s.feed_ml ? ` (${num(s.feed_ml)} ml)` : ""} · 🧷 ${plural(s.diapers, "pañal", "pañales")} · 😴 ${s.sleep_seconds >= 60 ? T.fmtDur(s.sleep_seconds) : "0 min"}\n`
       + `<blockquote expandable>${rows.join("\n")}</blockquote>`;
   }
 
@@ -338,16 +339,16 @@ export class App {
   async dailySummaryText(dayNaive = this.todayNaive()): Promise<string> {
     const [s, y] = await Promise.all([this.daySummary(dayNaive), this.daySummary(dayNaive - T.DAY)]);
     const age = await this.ageText();
-    const date = new Date(dayNaive).toLocaleDateString("es", { weekday: "long", day: "numeric", month: "long", timeZone: "UTC" });
+    const date = T.longDate(dayNaive);
     const vs = (a: number, b: number) => (b ? ` <i>(ayer ${b}${a > b ? " ↑" : a < b ? " ↓" : ""})</i>` : "");
     const out = [`🌙 <b>Resumen del día · ${escapeHtml(this.babyName)}</b>`, `<i>${date}${age ? ` · ${age}` : ""}</i>`];
 
-    const feedLines = [`<b>${s.feeds} tomas</b>${vs(s.feeds, y.feeds)}`];
+    const feedLines = [`<b>${plural(s.feeds, "toma", "tomas")}</b>${vs(s.feeds, y.feeds)}`];
     if (s.feed_ml) feedLines.push(`🍼 ${num(s.feed_ml)} ml en tetero`);
-    if (s.breast_feeds) feedLines.push(`🤱 ${s.breast_feeds} veces pecho${s.breast_minutes ? ` (${num(s.breast_minutes)} min)` : ""}`);
+    if (s.breast_feeds) feedLines.push(`🤱 ${plural(s.breast_feeds, "vez", "veces")} pecho${s.breast_minutes ? ` (${num(s.breast_minutes)} min)` : ""}`);
     out.push(`\n🍼 <b>Alimentación</b>\n<blockquote>${feedLines.join("\n")}</blockquote>`);
 
-    out.push(`🧷 <b>Pañales</b>\n<blockquote><b>${s.diapers} cambios</b>${vs(s.diapers, y.diapers)}\n💧 ${s.pee} pipí · 💩 ${s.poop} popó</blockquote>`);
+    out.push(`🧷 <b>Pañales</b>\n<blockquote><b>${plural(s.diapers, "cambio", "cambios")}</b>${vs(s.diapers, y.diapers)}\n💧 ${s.pee} pipí · 💩 ${s.poop} popó</blockquote>`);
 
     const ys = y.sleep_seconds ? ` <i>(ayer ${T.fmtDur(y.sleep_seconds)})</i>` : "";
     out.push(`😴 <b>Sueño</b>\n<blockquote><b>${s.sleep_seconds >= 60 ? T.fmtDur(s.sleep_seconds) : "Sin registrar"}</b>${ys}`
@@ -625,7 +626,7 @@ export class App {
     if (cfg.url && cfg.to.length && cfg.opts.summary && hour >= cfg.opts.summary_hour
       && (await this.kvGet("summary_sent")) !== today) {
       await this.kvSet("summary_sent", today);
-      const d = new Date(nowN).toLocaleDateString("es", { weekday: "long", day: "numeric", month: "long", timeZone: "UTC" });
+      const d = T.longDate(nowN);
       await this.email("summary", `📋 Resumen de ${this.babyName} · ${d}`, await this.dailySummaryHtml());
       sent.push(`summary:${today}`);
     }
