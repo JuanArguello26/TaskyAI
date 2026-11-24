@@ -20,9 +20,24 @@ export type EmailCategory = "reminders" | "appointments" | "feed" | "summary" | 
 const EMAIL_RE = /^[^@\s<>"]+@[^@\s<>"]+\.[^@\s<>"]+$/;
 export const isEmail = (s: string) => EMAIL_RE.test(s) && s.length <= 120;
 
-export function validScriptUrl(env: Env, url: string): boolean {
-  if (env.TEST_MODE === "1" && url.startsWith("http://127.0.0.1:")) return true;
-  return /^https:\/\/script\.google\.com\/macros\/s\/[A-Za-z0-9_-]+\/exec$/.test(url);
+/**
+ * Acepta lo que Google muestre y lo deja como .../macros/s/ID/exec:
+ *  - https://script.google.com/macros/s/ID/exec (o /dev, con ?parámetros)
+ *  - https://script.google.com/a/macros/DOMINIO/s/ID/exec (cuentas de empresa/colegio)
+ *  - https://script.google.com/u/0/... · sin https:// · solo el "ID de implementación"
+ * Devuelve null si no parece de Google.
+ */
+export function normalizeScriptUrl(env: Env, input: string): string | null {
+  const raw = input.trim().replace(/^<|>$/g, "").replace(/\s+/g, "");
+  if (env.TEST_MODE === "1" && raw.startsWith("http://127.0.0.1:")) return raw;
+  if (/^AKfy[A-Za-z0-9_-]{20,}$/.test(raw)) return `https://script.google.com/macros/s/${raw}/exec`;
+  const m = raw.replace(/^(?!https?:\/\/)/, "https://")
+    .match(/^https?:\/\/script\.google\.com\/(?:u\/\d+\/)?(a\/(?:macros\/)?[^/]+\/)?(?:macros\/)?s\/([A-Za-z0-9_-]{20,})\/(?:exec|dev)(?:[?#].*)?$/);
+  if (!m) return null;
+  const domain = m[1] ? m[1].replace(/^a\/(?:macros\/)?/, "").replace(/\/$/, "") : null;
+  return domain
+    ? `https://script.google.com/a/macros/${domain}/s/${m[2]}/exec`
+    : `https://script.google.com/macros/s/${m[2]}/exec`;
 }
 
 export async function hmacHex(key: string, msg: string): Promise<string> {

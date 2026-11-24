@@ -418,6 +418,12 @@ test("correo: configurar, validar y probar", async () => {
   assert.match(g.script, /const CLAVE = "[0-9a-f]{32}"/);
   assert.equal((await api("/api/email", { method: "PUT", body: { url: "https://evil.example/x", to: ["a@b.co"] } })).status, 422);
   assert.equal((await api("/api/email", { method: "PUT", body: { url: null, to: ["no-es-correo"] } })).status, 422);
+  const id = "AKfycbx1234567890abcdefghijklmnop_-XYZ";
+  for (const u of [id, `https://script.google.com/a/macros/colegio.edu.co/s/${id}/exec`, ` script.google.com/macros/s/${id}/dev?x=1 `]) {
+    assert.equal((await api("/api/email", { method: "PUT", body: { url: u, to: [] } })).status, 200, u);
+  }
+  assert.equal((await api("/api/email")).data.url, `https://script.google.com/macros/s/${id}/exec`);
+  assert.equal((await api("/api/email", { method: "PUT", body: { url: "https://script.google.com/home/projects/1abc/edit", to: [] } })).status, 422);
   const gs = `http://127.0.0.1:${TG_PORT}/gs`;
   assert.equal((await api("/api/email", { method: "PUT", body: { url: gs, to: ["Papa@Gmail.com", "mama@gmail.com"], opts: {} } })).status, 200);
   EMAILS.length = 0;

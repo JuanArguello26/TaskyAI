@@ -2,7 +2,7 @@ import { handleUpdate, setupWebhook, timingSafeEqual } from "./bot";
 import { HttpError, type Env } from "./env";
 import { App, Appointment, Entry, escapeHtml, KINDS, Reminder } from "./logic";
 import { tgEnabled } from "./tg";
-import { DEFAULT_OPTS, emailKey, googleCalendarUrl, hmacHex, isEmail, scriptCode, validScriptUrl } from "./email";
+import { DEFAULT_OPTS, emailKey, googleCalendarUrl, hmacHex, isEmail, normalizeScriptUrl, scriptCode } from "./email";
 import * as T from "./time";
 
 // ------------------------------------------------------------------ utilidades
@@ -310,9 +310,13 @@ async function route(req: Request, env: Env, ctx: ExecutionContext): Promise<Res
 
   if (path === "/api/email" && method === "PUT") {
     const b = await body(req);
-    const u = b.url ? String(b.url).trim() : null;
-    if (u && !validScriptUrl(env, u)) {
-      throw new HttpError(422, "La URL debe ser la de la aplicación web de Google: https://script.google.com/macros/s/…/exec");
+    let u: string | null = null;
+    if (b.url && String(b.url).trim()) {
+      u = normalizeScriptUrl(env, String(b.url));
+      if (!u) {
+        throw new HttpError(422, "Esa no parece la URL del script. En Google: Implementar → Gestionar implementaciones → "
+          + "copia la «URL de la aplicación web» (empieza por https://script.google.com/ y termina en /exec).");
+      }
     }
     const to = (Array.isArray(b.to) ? b.to : []).map((x: unknown) => String(x).trim().toLowerCase()).filter(Boolean);
     const bad = to.find((x: string) => !isEmail(x));
