@@ -1,6 +1,7 @@
 export interface Env {
   DB: D1Database;
   ASSETS: Fetcher;
+  AI?: Ai;
   FAMILY_PIN: string;
   SECRET_KEY: string;
   TELEGRAM_TOKEN?: string;
@@ -9,6 +10,8 @@ export interface Env {
   FEED_ALERT_HOURS?: string;
   /** Solo para pruebas locales: URL falsa de la API de Telegram. */
   TG_API_BASE?: string;
+  /** Solo para pruebas locales: IA falsa. */
+  AI_TEST_URL?: string;
   /** Solo para pruebas locales: habilita /__test/*. */
   TEST_MODE?: string;
 }

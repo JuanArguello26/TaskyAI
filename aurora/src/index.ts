@@ -88,7 +88,7 @@ async function route(req: Request, env: Env, ctx: ExecutionContext): Promise<Res
   if (path.startsWith("/__test/")) {
     if (env.TEST_MODE !== "1") return json({ detail: "No encontrado" }, 404);
     if (path === "/__test/reset") {
-      await env.DB.batch(["entries", "appointments", "reminders", "caregivers", "kv", "auth_fails"]
+      await env.DB.batch(["entries", "appointments", "reminders", "caregivers", "kv", "auth_fails", "chat_state"]
         .map((t) => env.DB.prepare(`DELETE FROM ${t}`)));
       return json({ ok: true });
     }

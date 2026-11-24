@@ -224,7 +224,7 @@ function renderSheetBody() {
     h += `<label>${isBreast ? "Minutos (opcional)" : "Cantidad en ml"}
       <input id="amount" type="number" inputmode="decimal" step="any" min="0" value="${amount ?? ""}"></label>`;
     if (!isBreast) {
-      h += `<div class="ml-opts">${[5, 10, 15, 20, 30, 45, 60, 90].map((v) => `<button type="button" class="chip" data-ml="${v}">${v} ml</button>`).join("")}</div>`;
+      h += `<div class="ml-opts">${[2, 3, 5, 7, 10, 15, 20, 30, 45, 60].map((v) => `<button type="button" class="chip" data-ml="${v}">${v} ml</button>`).join("")}</div>`;
       h += opts("detail2", [["biberon", "Leche materna"], ["formula", "Fórmula"]], detail === "formula" ? "formula" : "biberon");
     }
   } else if (kind === "diaper") {

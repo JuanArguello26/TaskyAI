@@ -24,7 +24,7 @@ export const KIND_LABEL: Record<string, string> = {
   medicine: "💊 Medicina", temp: "🌡️ Temperatura", weight: "⚖️ Peso", note: "📝 Nota",
 };
 export const DETAIL_LABEL: Record<string, string> = {
-  pecho_izq: "pecho izquierdo", pecho_der: "pecho derecho", biberon: "biberón", formula: "fórmula",
+  pecho_izq: "pecho izquierdo", pecho_der: "pecho derecho", pecho: "pecho", pecho_ambos: "ambos pechos", biberon: "biberón", formula: "fórmula",
   pipi: "pipí", popo: "popó", ambos: "pipí + popó",
 };
 

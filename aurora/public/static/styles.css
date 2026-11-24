@@ -209,7 +209,7 @@ nav.bottom {
 .label { font-size: 14px; color: var(--muted); }
 .big-opts { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
 .big-opts .chip { padding: 14px 6px; border-radius: 14px; font-size: 15px; text-align: center; }
-.ml-opts { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.ml-opts { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; }
 .ml-opts .chip { text-align: center; padding: 10px 4px; }
 
 .toast {
