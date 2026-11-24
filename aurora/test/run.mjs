@@ -23,9 +23,15 @@ const AI_MAP = {
   "el control con la pediatra es el 2 de diciembre de 2027 a las 10 y media":
     { actions: [{ type: "appointment", date: "2027-12-02", time: "10:30", title: "Control con la pediatra", place: null }] },
   "30": { actions: [] },
+  "tratamiento: amoxicilina 2.5 ml cada 8 horas por 7 días desde las 8":
+    { actions: [{ type: "medication", name: "Amoxicilina", dose: "2.5 ml", every_hours: 8, days: 7, start_time: "08:00" }] },
+  "hizo 5 minutos de tummy time y anota que hay que comprar pañales":
+    { actions: [{ type: "tummy", amount: 5 }, { type: "note", text: "Comprar pañales" }] },
 };
 let AI_DOWN = false;
 const EMAILS = [];
+const CAL = [];
+let GS_VERSION = 2;
 const tgServer = http.createServer((req, res) => {
   let data = "";
   req.on("data", (c) => (data += c));
@@ -38,7 +44,7 @@ const tgServer = http.createServer((req, res) => {
       const sys = input.messages[0].content;
       const user = input.messages[1].content;
       if (sys.startsWith("Conviertes")) {
-        const key = user.replace(/^recuérdame |^control médico: /, "");
+        const key = AI_MAP[user] ? user : user.replace(/^recuérdame |^control médico: /, "");
         const out = AI_MAP[user] ?? AI_MAP[key] ?? { actions: [] };
         return res.end(JSON.stringify({ choices: [{ message: { content: "```json\n" + JSON.stringify(out) + "\n```" } }] }));
       }
@@ -46,6 +52,10 @@ const tgServer = http.createServer((req, res) => {
     }
     if (req.url === "/gs") {
       const d = JSON.parse(data);
+      if (d.action && GS_VERSION < 2) return res.end(JSON.stringify({ ok: false, error: "sin destinatarios" }));
+      if (d.action === "ping") return res.end(JSON.stringify({ ok: true, version: GS_VERSION }));
+      if (d.action === "calendar_create") { CAL.push(d); return res.end(JSON.stringify({ ok: true, id: "ev" + CAL.length })); }
+      if (d.action === "calendar_delete") { CAL.push(d); return res.end(JSON.stringify({ ok: true })); }
       EMAILS.push(d);
       return res.end(JSON.stringify({ ok: true, quota: 99 }));
     }
@@ -125,7 +135,7 @@ async function tgAll(text, chat = 100) {
 
 const kbData = (m) => (m?.kb?.inline_keyboard ?? []).flat().map((b) => b.callback_data);
 
-const tick = async () => (await (await fetch(BASE + "/__test/tick", { method: "POST" })).json()).sent;
+const tick = async (at) => (await (await fetch(BASE + "/__test/tick" + (at ? `?at=${at}` : ""), { method: "POST" })).json()).sent;
 const iso = (msAgo) => new Date(Date.now() - msAgo).toISOString();
 const MIN = 60_000, HOUR = 60 * MIN;
 
@@ -337,16 +347,158 @@ test("cron: recordatorios únicos y repetitivos", async () => {
   assert.ok(Date.parse(rems[0].due_at) > Date.now() + 2 * HOUR);
 });
 
-test("cron: aviso de control y de comida, sin repetir", async () => {
+test("cron: alerta de comida sin repetir", async () => {
   await tg(`/start ${PIN} Juan`, 1);
-  await api("/api/appointments", { method: "POST", body: { title: "Pediatra", at: iso(-HOUR) } });
-  await api("/api/appointments", { method: "POST", body: { title: "Vacuna", at: iso(-20 * HOUR) } });
   await api("/api/entries", { method: "POST", body: { kind: "feed", detail: "biberon", amount: 20, start: iso(4 * HOUR) } });
-  const sent = await tick();
-  assert.ok(sent.some((s) => s.startsWith("appt2h")), sent.join());
-  assert.ok(sent.some((s) => s.startsWith("appt24h")), sent.join());
-  assert.ok(sent.some((s) => s.startsWith("feed_alert")), sent.join());
+  assert.ok((await tick()).some((s) => s.startsWith("feed_alert")));
   assert.deepEqual(await tick(), []);
+});
+
+test("recordatorio: 1 h antes, 10 min antes y a la hora exacta (sin retraso)", async () => {
+  await tg(`/start ${PIN} Juan`, 1);
+  const minute = Math.floor(Date.now() / MIN) * MIN;
+  const due = minute + 2 * HOUR; // en punto
+  // con segundos sueltos (como cuando la IA dice "en 2 horas"): se ajusta al minuto
+  const r = (await api("/api/reminders", { method: "POST", body: { text: "Control prenatal", due_at: new Date(due + 49_000).toISOString() } })).data;
+  assert.equal(Date.parse(r.due_at), due);
+  assert.deepEqual(await tick(minute), []);
+  assert.deepEqual(await tick(due - 61 * MIN), []);
+  assert.deepEqual(await tick(due - 60 * MIN), [`pre60:${r.id}`]);
+  assert.deepEqual(await tick(due - 30 * MIN), []);
+  SENT.length = 0;
+  assert.deepEqual(await tick(due - 10 * MIN), [`pre10:${r.id}`]);
+  assert.match(SENT[0].text, /En 10 minutos/);
+  assert.deepEqual(await tick(due - MIN), []);
+  SENT.length = 0;
+  assert.deepEqual(await tick(due + 1000), [`reminder:${r.id}`], "sale en el minuto exacto");
+  assert.deepEqual(kbData(SENT[0]).map((d) => d.split(":")[0]), ["rdone", "rsnz"]);
+  assert.deepEqual(await tick(due + 59_000), []);
+});
+
+test("recordatorio repetitivo: solo 10 min antes y se apaga al terminar el tratamiento", async () => {
+  await tg(`/start ${PIN} Juan`, 1);
+  const minute = Math.floor(Date.now() / MIN) * MIN;
+  const r = (await api("/api/reminders", { method: "POST", body: { text: "vitamina", due_at: new Date(minute + 3 * HOUR).toISOString(), repeat_minutes: 1440 } })).data;
+  const due = Date.parse(r.due_at);
+  assert.deepEqual(await tick(due - 60 * MIN), [], "sin aviso de 1 h en los repetitivos");
+  assert.deepEqual(await tick(due - 10 * MIN), [`pre10:${r.id}`]);
+  assert.deepEqual(await tick(due), [`reminder:${r.id}`]);
+  assert.deepEqual(await tick(due + 1440 * MIN - 10 * MIN), [`pre10:${r.id}`], "vuelve a avisar 10 min antes al día siguiente");
+});
+
+test("controles: avisos 24 h, 12 h y 2 h antes, una vez cada uno", async () => {
+  await tg(`/start ${PIN} Juan`, 1);
+  const minute = Math.floor(Date.now() / MIN) * MIN;
+  const at = minute + 30 * HOUR;
+  const a = (await api("/api/appointments", { method: "POST", body: { title: "Pediatra", at: new Date(at).toISOString() } })).data;
+  assert.deepEqual(await tick(minute), []);
+  assert.deepEqual(await tick(at - 24 * HOUR), [`appt24h:${a.id}`]);
+  assert.deepEqual(await tick(at - 20 * HOUR), []);
+  assert.deepEqual(await tick(at - 12 * HOUR), [`appt12h:${a.id}`]);
+  assert.deepEqual(await tick(at - 3 * HOUR), []);
+  assert.deepEqual(await tick(at - 2 * HOUR), [`appt2h:${a.id}`]);
+  assert.deepEqual(await tick(at - HOUR), []);
+  // uno creado para dentro de 5 h solo avisa 2 h antes
+  const b = (await api("/api/appointments", { method: "POST", body: { title: "Vacuna", at: new Date(minute + 5 * HOUR).toISOString() } })).data;
+  assert.deepEqual(await tick(minute + 2 * HOUR), []);
+  assert.deepEqual(await tick(minute + 3 * HOUR), [`appt2h:${b.id}`]);
+});
+
+test("✅ Hecho registra la medicina (una sola vez) y ⏰ En 10 min la pospone", async () => {
+  await tg(`/start ${PIN} Juan`, 1);
+  await tg(`/start ${PIN} Maria`, 2);
+  await tg("➕ Más", 1);
+  await tgButton("m:rut", 1);
+  await tgButton("rt:vitd", 1);
+  const m = await tgButton("rth:vitd:1", 1);
+  assert.match(m.text, /Rutina creada.*Vitamina D/s);
+  const [r] = (await api("/api/reminders")).data;
+  assert.equal(r.repeat_minutes, 1440);
+  assert.equal(r.action, "medicine:Vitamina D");
+  SENT.length = 0;
+  await tick(Date.parse(r.due_at));
+  const done = kbData(SENT.find((x) => x.chat === "1")).find((d) => d.startsWith("rdone:"));
+  const snooze = kbData(SENT.find((x) => x.chat === "1")).find((d) => d.startsWith("rsnz:"));
+  assert.match((await tgButton(done, 1)).text, /Hecho.*Juan/s);
+  assert.match((await tgButton(done, 2)).text, /Ya lo marcó Juan/);
+  const meds = (await api("/api/entries?kind=medicine")).data;
+  assert.equal(meds.length, 1);
+  assert.match(meds[0].text, /Vitamina D/);
+  assert.match((await tgButton(snooze, 2)).text, /de nuevo a las/);
+  assert.equal((await api("/api/reminders")).data.length, 2);
+});
+
+test("rutina de tummy time crea 3 recordatorios diarios", async () => {
+  await tg(`/start ${PIN} Juan`, 1);
+  await tgButton("rt:tummy", 1);
+  await tgButton("rth:tummy:0", 1);
+  const rems = (await api("/api/reminders")).data;
+  assert.equal(rems.length, 3);
+  assert.ok(rems.every((r) => r.action === "tummy" && r.repeat_minutes === 1440));
+});
+
+test("tratamiento con IA: cada 8 h por 7 días", async () => {
+  await tg(`/start ${PIN} Juan`, 1);
+  await tgButton("rt:course", 1);
+  const t = await tg("amoxicilina 2.5 ml cada 8 horas por 7 días desde las 8", 1);
+  assert.match(t, /Amoxicilina 2\.5 ml/);
+  assert.match(t, /cada 8 h/);
+  const [r] = (await api("/api/reminders")).data;
+  assert.equal(r.repeat_minutes, 480);
+  assert.equal(r.action, "medicine:Amoxicilina 2.5 ml");
+  const days = (Date.parse(r.ends_at) - Date.parse(r.due_at)) / (24 * HOUR);
+  assert.ok(days > 6.99 && days < 7, String(days));
+});
+
+test("notas: anotar, listar, marcar hecha (bot y web)", async () => {
+  await tg(`/start ${PIN} Juan`, 1);
+  assert.match(await tg("anota: preguntarle a la pediatra por el ombligo", 1), /Anotado/);
+  assert.match(await tg("Apunta comprar pañales talla 0", 1), /Anotado/);
+  const list = (await tgAll("mis notas", 1)).pop();
+  assert.match(list.text, /pediatra por el ombligo/);
+  const ndone = kbData(list).find((d) => d.startsWith("nd:"));
+  await tgButton(ndone, 1);
+  assert.equal((await api("/api/notes")).data.length, 1);
+  assert.equal((await api("/api/notes?all=1")).data.length, 2);
+  const n = (await api("/api/notes", { method: "POST", body: { text: "llevar el carnet de vacunas" } })).data;
+  await api(`/api/notes/${n.id}/done`, { method: "POST" });
+  await api(`/api/notes/${n.id}`, { method: "DELETE" });
+  assert.equal((await api("/api/notes?all=1")).data.length, 2);
+});
+
+test("IA: tummy time + nota en un mensaje; tummy por botón", async () => {
+  await tg(`/start ${PIN} Juan`, 1);
+  const all = (await tgAll("hizo 5 minutos de tummy time y anota que hay que comprar pañales", 1)).map((m) => m.text).join("\n");
+  assert.match(all, /Tummy time · 5 min/);
+  assert.match(all, /Anotado.*Comprar pañales/s);
+  await tgButton("m:tummy", 1);
+  assert.match(await tg("3", 1), /Tummy time · 3 min/);
+  assert.equal((await api("/api/entries?kind=tummy")).data.length, 2);
+});
+
+test("Google Calendar automático (script v2) y respaldo con enlace (script viejo)", async () => {
+  await tg(`/start ${PIN} Juan`, 1);
+  const gs = `http://127.0.0.1:${TG_PORT}/gs`;
+  CAL.length = 0;
+  GS_VERSION = 2;
+  assert.equal((await api("/api/email", { method: "PUT", body: { url: gs, to: ["papa@gmail.com", "mama@gmail.com"] } })).data.script_version, 2);
+  const m = (await tgAll("/control 01/12/2027 9:30 Pediatra | Clínica", 1)).pop();
+  assert.match(m.text, /Ya está en Google Calendar/);
+  assert.ok(!m.kb.inline_keyboard.flat().some((b) => b.url), "sin enlace manual");
+  assert.equal(CAL[0].action, "calendar_create");
+  assert.deepEqual(CAL[0].guests, ["papa@gmail.com", "mama@gmail.com"]);
+  assert.deepEqual(CAL[0].popups, [1440, 720, 120]);
+  const [a] = (await api("/api/appointments")).data;
+  assert.equal(a.in_calendar, true);
+  await api(`/api/appointments/${a.id}`, { method: "DELETE" });
+  assert.equal(CAL[1].action, "calendar_delete");
+  assert.equal(CAL[1].id, "ev1");
+  // script viejo: queda el botón para agregarlo a mano
+  GS_VERSION = 1;
+  await api("/api/email", { method: "PUT", body: { url: gs, to: ["papa@gmail.com"] } });
+  const m2 = (await tgAll("/control 02/12/2027 9:30 Vacuna", 1)).pop();
+  assert.ok(m2.kb.inline_keyboard.flat().some((b) => b.url), "con enlace manual");
+  GS_VERSION = 2;
 });
 
 test("el cron real de Cloudflare dispara los recordatorios", async () => {
@@ -439,15 +591,18 @@ test("correo: recordatorios, controles y resumen diario", async () => {
   const gs = `http://127.0.0.1:${TG_PORT}/gs`;
   await api("/api/email", { method: "PUT", body: { url: gs, to: ["papa@gmail.com"], opts: { summary_hour: 0, feed: false } } });
   await api("/api/reminders", { method: "POST", body: { text: "vitamina D", due_at: iso(MIN) } });
-  await api("/api/appointments", { method: "POST", body: { title: "Pediatra", at: iso(-HOUR) } });
+  const at = Math.floor(Date.now() / MIN) * MIN + 26 * HOUR;
+  await api("/api/appointments", { method: "POST", body: { title: "Pediatra", at: new Date(at).toISOString() } });
   EMAILS.length = 0;
   await tick();
+  await tick(at - 24 * HOUR);
   const subjects = EMAILS.map((e) => e.subject);
   assert.ok(subjects.some((x) => x.includes("Recordatorio: vitamina D")), subjects.join(" | "));
   assert.ok(subjects.some((x) => x.includes("Control en")), subjects.join(" | "));
   assert.ok(subjects.some((x) => x.startsWith("📋 Resumen de Aurora")), subjects.join(" | "));
   EMAILS.length = 0;
   await tick();
+  await tick(at - 23 * HOUR);
   assert.equal(EMAILS.length, 0, "el resumen sale una sola vez al día");
   // categoría desactivada: no manda correo (pero Telegram sí)
   await api("/api/email", { method: "PUT", body: { url: gs, to: ["papa@gmail.com"], opts: { reminders: false, summary: false } } });

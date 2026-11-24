@@ -75,7 +75,8 @@
           <button class="action" data-new="medicine"><span>💊</span>Medicina</button>
           <button class="action" data-new="temp"><span>🌡️</span>Temp.</button>
           <button class="action" data-new="weight"><span>⚖️</span>Peso</button>
-          <button class="action" data-new="note"><span>📝</span>Nota</button>
+          <button class="action" data-new="tummy"><span>🧸</span>Tummy</button>
+          <button class="action" data-new="note"><span>📝</span>Diario</button>
         </div>
 
         <h2>Hoy</h2>
@@ -95,6 +96,7 @@
           <button class="chip" data-filter="medicine">💊</button>
           <button class="chip" data-filter="temp">🌡️</button>
           <button class="chip" data-filter="weight">⚖️</button>
+          <button class="chip" data-filter="tummy">🧸</button>
           <button class="chip" data-filter="note">📝</button>
         </div>
         <div id="history"></div>
@@ -112,6 +114,14 @@
         </form>
         <div id="appts"></div>
 
+        <h2>📝 Notas</h2>
+        <form class="panel form" id="note-form">
+          <input name="text" placeholder="Ej: preguntarle a la pediatra por el ombligo" required maxlength="1000">
+          <button class="btn primary" type="submit">Anotar</button>
+        </form>
+        <div id="notes"></div>
+        <button class="link small" id="notes-done-toggle">Ver también las hechas</button>
+
         <h2>⏰ Recordatorios</h2>
         <form class="panel form" id="rem-form">
           <input name="text" placeholder="Ej: Vitamina D, sacar leche" required maxlength="200">
@@ -126,6 +136,7 @@
             <option value="480">Cada 8 horas</option>
             <option value="720">Cada 12 horas</option>
             <option value="1440">Todos los días</option>
+            <option value="2880">Cada 2 días</option>
             <option value="10080">Cada semana</option>
           </select>
           <button class="btn primary" type="submit">Crear</button>
@@ -177,6 +188,8 @@
           <label class="check"><input type="checkbox" id="eo-reminders"> ⏰ Recordatorios</label>
           <label class="check"><input type="checkbox" id="eo-appointments"> 🩺 Controles médicos (24 h y 2 h antes)</label>
           <label class="check"><input type="checkbox" id="eo-feed"> 🍼 Alerta de muchas horas sin comer</label>
+          <label class="check"><input type="checkbox" id="eo-calendar"> 📅 Agregar los controles a Google Calendar solos</label>
+          <p class="small hidden" id="script-update"></p>
           <label class="check"><input type="checkbox" id="eo-summary"> 📋 Resumen del día a las
             <select id="eo-hour" class="inline"></select></label>
           <div class="sheet-actions">

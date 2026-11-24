@@ -54,6 +54,7 @@ export type Action = {
   detail?: string; amount?: number | null; ago?: number | null; time?: string | null;
   start?: string; end?: string; name?: string; value?: number; kg?: number; text?: string;
   date?: string | null; in_minutes?: number | null; repeat_minutes?: number | null; title?: string; place?: string | null;
+  dose?: string | null; every_hours?: number | null; days?: number | null; start_time?: string | null;
 };
 
 const DAYS = ["domingo", "lunes", "martes", "miércoles", "jueves", "viernes", "sábado"];
@@ -67,7 +68,10 @@ Responde SOLO un objeto JSON: {"actions":[...]}. Tipos de acción:
 feed {"type":"feed","detail":"biberon|formula|pecho_izq|pecho_der|pecho","amount":num|null,"ago":min|null,"time":"HH:MM"|null}
 diaper {"type":"diaper","detail":"pipi|popo|ambos","ago","time"}
 sleep_start {"type":"sleep_start","ago","time"} · sleep_end {"type":"sleep_end","ago","time"} · sleep_past {"type":"sleep_past","start":"HH:MM","end":"HH:MM"}
-bath {"type":"bath","ago","time"} · medicine {"type":"medicine","name"} · temp {"type":"temp","value"} · weight {"type":"weight","kg"} · note {"type":"note","text"}
+bath {"type":"bath","ago","time"} · medicine {"type":"medicine","name"} = ya se la dieron · temp {"type":"temp","value"} · weight {"type":"weight","kg"}
+tummy {"type":"tummy","amount":minutos|null,"ago","time"} = tummy time / barriguita / boca abajo
+note {"type":"note","text"} = algo para anotar y no olvidar (anota, apunta, comprar, preguntar al pediatra…)
+medication {"type":"medication","name","dose":"2.5 ml"|null,"every_hours":num,"days":num|null,"start_time":"HH:MM"|null} = tratamiento con horario (cada X horas por N días)
 reminder {"type":"reminder","date":"YYYY-MM-DD"|null,"time":"HH:MM"|null,"in_minutes":num|null,"repeat_minutes":num|null,"text"}
 appointment {"type":"appointment","date":"YYYY-MM-DD","time":"HH:MM","title","place":null}
 question {"type":"question"} = pregunta sobre la bebé o sus registros. undo {"type":"undo"} = borrar/deshacer lo último. chat {"type":"chat"} = saludo u otra cosa.

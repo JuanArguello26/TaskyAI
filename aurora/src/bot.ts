@@ -79,12 +79,47 @@ function diaperKeyboard(): Keyboard {
 
 function moreKeyboard(): Keyboard {
   return [
-    [{ text: "🛁 Baño", callback_data: "m:bath" }, { text: "💊 Medicina", callback_data: "m:med" }],
-    [{ text: "🌡️ Temperatura", callback_data: "m:temp" }, { text: "⚖️ Peso", callback_data: "m:weight" }],
+    [{ text: "📝 Notas", callback_data: "m:notes" }, { text: "🗓️ Rutinas", callback_data: "m:rut" }],
     [{ text: "⏰ Recordatorio", callback_data: "m:rem" }, { text: "🩺 Control médico", callback_data: "m:appt" }],
-    [{ text: "📋 Hoy", callback_data: "m:today" }, { text: "📅 Agenda", callback_data: "m:agenda" }],
-    [{ text: "📝 Nota", callback_data: "m:note" }, { text: "❓ Ayuda", callback_data: "m:help" }],
+    [{ text: "🛁 Baño", callback_data: "m:bath" }, { text: "🧸 Tummy time", callback_data: "m:tummy" }],
+    [{ text: "💊 Medicina", callback_data: "m:med" }, { text: "🌡️ Temperatura", callback_data: "m:temp" }],
+    [{ text: "⚖️ Peso", callback_data: "m:weight" }, { text: "📋 Hoy", callback_data: "m:today" }],
+    [{ text: "📅 Agenda", callback_data: "m:agenda" }, { text: "❓ Ayuda", callback_data: "m:help" }],
   ];
+}
+
+function tummyKeyboard(): Keyboard {
+  const b = (v: number) => ({ text: `${v} min`, callback_data: `tm:${v}` });
+  return [[2, 3, 5, 10, 15].map(b), [{ text: "Sin contar", callback_data: "tm:0" }, { text: "✖️ Cancelar", callback_data: "cancel" }]];
+}
+
+// ---------------- rutinas de bebé (recordatorios repetitivos listos)
+
+type Routine = { label: string; text: string; repeat: number; action: string | null; options: [string, string[]][] };
+export const ROUTINES: Record<string, Routine> = {
+  vitd: { label: "💊 Vitamina D diaria", text: "💊 Darle la vitamina D", repeat: 1440, action: "medicine:Vitamina D",
+    options: [["7:00", ["07:00"]], ["8:00", ["08:00"]], ["9:00", ["09:00"]], ["12:00", ["12:00"]], ["20:00", ["20:00"]]] },
+  tummy: { label: "🧸 Tummy time 3 veces al día", text: "🧸 Tummy time (boca abajo, despierta y vigilada)", repeat: 1440, action: "tummy",
+    options: [["10 · 14 · 18 h", ["10:00", "14:00", "18:00"]], ["9 · 13 · 17 h", ["09:00", "13:00", "17:00"]], ["11 · 15 · 19 h", ["11:00", "15:00", "19:00"]]] },
+  bath: { label: "🛁 Baño cada 2 días", text: "🛁 Hora del baño", repeat: 2880, action: "bath",
+    options: [["9:00", ["09:00"]], ["11:00", ["11:00"]], ["17:00", ["17:00"]], ["19:00", ["19:00"]]] },
+  cord: { label: "🩹 Revisar ombliguito 2 veces al día", text: "🩹 Revisar el ombliguito (limpio y seco, según indique el pediatra)", repeat: 1440, action: null,
+    options: [["8 · 20 h", ["08:00", "20:00"]], ["9 · 21 h", ["09:00", "21:00"]]] },
+};
+
+function routinesKeyboard(): Keyboard {
+  return [
+    ...Object.entries(ROUTINES).map(([k, r]) => [{ text: r.label, callback_data: `rt:${k}` }]),
+    [{ text: "💊 Tratamiento (antibiótico, etc.)", callback_data: "rt:course" }],
+    [{ text: "✖️ Cerrar", callback_data: "cancel" }],
+  ];
+}
+
+async function notesKeyboard(app: App): Promise<Keyboard> {
+  const notes = await app.listNotes(false, 15);
+  const rows: Keyboard = notes.map((n, i) => [{ text: `✅ ${i + 1}. ${n.text.slice(0, 40)}${n.text.length > 40 ? "…" : ""}`, callback_data: `nd:${n.id}` }]);
+  rows.push([{ text: "➕ Nueva nota", callback_data: "m:note" }]);
+  return rows;
 }
 
 /** Botones de corrección debajo de cada registro. */
@@ -104,6 +139,8 @@ export const COMMANDS: [string, string][] = [
   ["estado", "¿Cómo va? Última comida, sueño, pañal"],
   ["hoy", "Todo lo de hoy"],
   ["agenda", "Controles y recordatorios"],
+  ["notas", "Mis notas pendientes"],
+  ["rutinas", "Vitamina D, tummy time, baño, tratamientos"],
   ["deshacer", "Borrar mi último registro"],
   ["avisos", "Activar/desactivar avisos de lo que registra el otro"],
   ["ayuda", "Cómo usar a Tasky"],
@@ -121,9 +158,15 @@ ${ai ? `<i>«le di 5 ml de fórmula hace 20 minutos»</i>
 <i>«pesó 3200 gramos»</i> · <i>«tiene 37,5 de temperatura»</i>
 <i>«recuérdame la vitamina D todos los días a las 8»</i>
 <i>«el control con la pediatra es el 2 de diciembre a las 10:30»</i>
+<i>«amoxicilina 2.5 ml cada 8 horas por 7 días desde las 8»</i>
+<i>«anota: preguntarle a la pediatra por el ombligo»</i>
+<i>«hizo 5 minutos de tummy time»</i>
 <i>«¿cuánto ha comido hoy?»</i> · <i>«¿hace cuánto no hace popó?»</i>` : `<i>popó</i> · <i>pipí</i> · <i>tetero 5</i> · <i>pecho izq 10</i> · <i>se durmió</i> · <i>se despertó</i> · <i>estado</i>`}
 
-Después de cada registro tienes <b>↩️ Deshacer</b> y <b>🕐 Fue hace…</b> por si te equivocas o lo anotas tarde.`;
+Después de cada registro tienes <b>↩️ Deshacer</b> y <b>🕐 Fue hace…</b> por si te equivocas o lo anotas tarde.
+En <b>➕ Más</b>: 📝 Notas, 🗓️ Rutinas (vitamina D, tummy time, baño, tratamientos), controles y más.
+
+⏰ Recordatorios: aviso 1 h y 10 min antes. 🩺 Controles: 24 h, 12 h y 2 h antes.`;
 }
 
 // ------------------------------------------------------------------ helpers
@@ -283,7 +326,8 @@ const PLAIN: Record<string, [string, string]> = {
   "bano": ["bano", ""], "se bano": ["bano", ""], "banada": ["bano", ""],
   "estado": ["estado", ""], "resumen": ["estado", ""], "como va": ["estado", ""], "como esta": ["estado", ""],
   "hoy": ["hoy", ""], "agenda": ["agenda", ""], "menu": ["menu", ""], "ayuda": ["ayuda", ""],
-  "deshacer": ["deshacer", ""],
+  "deshacer": ["deshacer", ""], "notas": ["notas", ""], "mis notas": ["notas", ""], "ver notas": ["notas", ""],
+  "rutinas": ["rutinas", ""], "tummy time": ["tummy", ""], "tummy": ["tummy", ""], "barriguita": ["tummy", ""],
   "hola": ["hola", ""], "ola": ["hola", ""], "hola tasky": ["hola", ""], "hola bot": ["hola", ""], "buenas": ["hola", ""], "buenos dias": ["hola", ""], "buen dia": ["hola", ""], "buenas tardes": ["hola", ""], "buenas noches": ["hola", ""], "hey": ["hola", ""], "holi": ["hola", ""], "que mas": ["hola", ""], "quiubo": ["hola", ""], "hola hola": ["hola", ""],
   "gracias": ["gracias", ""], "muchas gracias": ["gracias", ""], "gracias tasky": ["gracias", ""], "mil gracias": ["gracias", ""], "ok": ["gracias", ""], "listo": ["gracias", ""], "vale": ["gracias", ""], "dale": ["gracias", ""],
 };
@@ -292,7 +336,11 @@ const ML_WORD = /^(?:(?:tomo|comio)\s+)?(biberon|tetero|formula|leche|toma)$/;
 const BREAST_RE = /^(?:dio\s+|tomo\s+)?(?:pecho|teta|seno)\s+(izq\S*|der\S*)(?:\s+(\d+)\s*(?:m|min|minutos)?)?$/;
 
 /** 'popó hace 10m' -> ['panal', 'popo hace 10m']. null si no es una frase simple. */
+const NOTE_RE = /^(?:anota(?:r|me)?|apunta(?:r|me)?|nota|no olvidar|no olvides|no se me olvide)\s*[:,-]?\s+(.+)$/is;
+
 export function plainToCommand(text: string): [string, string] | null {
+  const nm = text.trim().match(NOTE_RE);
+  if (nm) return ["nota", nm[1].trim()];
   const m = norm(text).match(TIME_SUFFIX)!;
   // "hizo popó", "ya hizo pipí", "acaba de hacer popó" -> "popo"
   const base = m[1].trim().replace(/^(?:ya |acaba de |acabo de )?(?:hizo|hacer|se hizo|tuvo) (?=(?:pipi|popo|caca|pis|popis)\b)/, "");
@@ -383,9 +431,16 @@ export async function handleCommand(app: App, cg: Caregiver, chatId: string, cmd
       if (v === null || v < 0.5 || v > 40) { await setState(app, chatId, "weight"); return ["⚖️ ¿Cuánto pesó? (ej: <i>3.2</i> kg o <i>3200</i> gramos)", null]; }
       return logReply(app, cg, chatId, "weight", { amount: Math.round(v * 1000) / 1000, start });
     }
-    case "nota":
+    case "nota": case "anota": case "apunta": case "anotar":
       if (!args) { await setState(app, chatId, "note"); return ["📝 Escribe la nota:", null]; }
-      return logReply(app, cg, chatId, "note", { note: args.slice(0, 2000) });
+      return noteReply(app, cg, args);
+    case "notas":
+      return [await app.notesText(), await notesKeyboard(app)];
+    case "rutinas":
+      return ["🗓️ <b>Rutinas</b> — elige una y te la recuerdo siempre:", routinesKeyboard()];
+    case "tummy":
+      if (toFloat(toks[0]) === null) { await setState(app, chatId, "tummy"); return ["🧸 ¿Cuántos minutos de tummy time?", tummyKeyboard()]; }
+      return logReply(app, cg, chatId, "tummy", { amount: toFloat(toks[0]) || null, start });
 
     case "recordar": {
       if (!args) { await setState(app, chatId, "rem"); return [REM_PROMPT, null]; }
@@ -416,6 +471,11 @@ export async function handleCommand(app: App, cg: Caregiver, chatId: string, cmd
   return ["No conozco ese comando. Toca ❓ Ayuda en ➕ Más.", MAIN_KB];
 }
 
+async function noteReply(app: App, cg: Caregiver, text: string): Promise<Reply> {
+  const n = await app.addNote(text, cg.name);
+  return [`📝 Anotado: <i>${esc(n.text)}</i>`, [[{ text: "📝 Ver notas", callback_data: "m:notes" }, { text: "↩️ Borrar", callback_data: `ndel:${n.id}` }]]];
+}
+
 const REM_PROMPT = "⏰ ¿Qué te recuerdo y cuándo?\nEj: <i>vitamina D mañana a las 8</i> · <i>sacarme leche en 30 minutos</i> · <i>dar pecho cada 3 horas</i>";
 const APPT_PROMPT = "🩺 ¿Qué control y cuándo?\nEj: <i>pediatra el 2 de diciembre a las 10:30 en la Clínica del Country</i>";
 
@@ -427,23 +487,45 @@ async function undoLast(app: App, cg: Caregiver): Promise<Reply> {
   return [`↩️ Borrado: ${esc(app.describe(e))}`, null];
 }
 
-async function insertReminder(app: App, cg: Caregiver, text: string, due: number, repeat: number | null): Promise<Reply> {
-  const r = await app.db.prepare(
-    "INSERT INTO reminders (text, due_at, repeat_minutes, active, author) VALUES (?, ?, ?, 1, ?) RETURNING id",
-  ).bind(text.slice(0, 200), due, repeat, cg.name).first<{ id: number }>();
+async function insertReminder(app: App, cg: Caregiver, text: string, due: number, repeat: number | null,
+  extra: { action?: string | null; endsAt?: number | null } = {}): Promise<Reply> {
+  const r = await app.createReminder({ text, due, repeat, author: cg.name, action: extra.action, endsAt: extra.endsAt });
   const rep = repeat ? `, y luego ${app.repeatLabel(repeat)}` : "";
-  return [`⏰ Listo, les aviso <b>${app.fmtTime(due)}</b>${rep}: ${esc(text)}`,
-    [[{ text: "🗑️ Cancelar recordatorio", callback_data: `rmrem:${r!.id}` }]]];
+  const until = r.ends_at ? ` hasta ${app.fmtTime(r.ends_at)}` : "";
+  const pre = [r.pre_60_sent ? "" : "1 h", r.pre_10_sent ? "" : "10 min"].filter(Boolean);
+  return [`⏰ Listo, les aviso <b>${app.fmtTime(r.due_at)}</b>${rep}${until}: ${esc(text)}`
+    + (pre.length ? `\n<i>También ${pre.join(" y ")} antes.</i>` : ""),
+    [[{ text: "🗑️ Cancelar recordatorio", callback_data: `rmrem:${r.id}` }]]];
+}
+
+/** Próxima vez que el reloj marque HH:MM (hoy o mañana). */
+function nextAt(app: App, hhmm: string): number {
+  const hm = T.parseHHMM(hhmm)!;
+  const nowN = T.toNaive(app.now(), app.tz);
+  let t = T.setHM(nowN, hm[0], hm[1]);
+  if (t <= nowN) t += T.DAY;
+  return T.fromNaive(t, app.tz);
+}
+
+async function createRoutine(app: App, cg: Caregiver, key: string, times: string[]): Promise<string> {
+  const r = ROUTINES[key];
+  if (!r) return "🤔";
+  for (const t of times) await app.createReminder({ text: r.text, due: nextAt(app, t), repeat: r.repeat, author: cg.name, action: r.action });
+  return `✅ Rutina creada: <b>${esc(r.label)}</b>\n🕐 ${times.join(", ")} · ${app.repeatLabel(r.repeat)}\n`
+    + "Cuando llegue el aviso toca <b>✅ Hecho</b> y queda registrado. Puedes verla o borrarla en 📅 Agenda.";
 }
 
 async function insertAppointment(app: App, cg: Caregiver, chatId: string, title: string, at: number, place: string | null): Promise<Reply> {
   const t = title.trim().slice(0, 120) || "Control médico";
-  const a = await app.db.prepare("INSERT INTO appointments (title, at, place, author) VALUES (?, ?, ?, ?) RETURNING id")
-    .bind(t, at, place?.slice(0, 160) || null, cg.name).first<{ id: number }>();
-  await app.broadcast(`📅 ${esc(cg.name)} agendó: ${esc(t)} — ${app.fmtTime(at)}`, { excludeChat: chatId, onlySubscribed: true });
-  return [`🩺 Agendado: <b>${esc(t)}</b> — ${app.fmtTime(at)}${place ? `\n📍 ${esc(place)}` : ""}\nLes recuerdo 24 h y 2 h antes.`,
-    [[{ text: "📅 Agregar a Google Calendar", url: googleCalendarUrl(`${t} (${app.babyName})`, at, place) }],
-      [{ text: "🗑️ Borrar control", callback_data: `rmappt:${a!.id}` }]]];
+  const [a, inCal] = await app.createAppointment({ title: t, at, place, author: cg.name });
+  await app.broadcast(`📅 ${esc(cg.name)} agendó: ${esc(t)} — ${app.fmtTime(a.at)}`, { excludeChat: chatId, onlySubscribed: true });
+  const left = a.at - app.now();
+  const pre = [left > 24 * T.HOUR ? "24 h" : "", left > 12 * T.HOUR ? "12 h" : "", left > 2 * T.HOUR ? "2 h" : ""].filter(Boolean);
+  const kb: Keyboard = inCal ? [] : [[{ text: "📅 Agregar a Google Calendar", url: googleCalendarUrl(`${t} (${app.babyName})`, a.at, place) }]];
+  kb.push([{ text: "🗑️ Borrar control", callback_data: `rmappt:${a.id}` }]);
+  return [`🩺 Agendado: <b>${esc(t)}</b> — ${app.fmtTime(a.at)}${place ? `\n📍 ${esc(place)}` : ""}`
+    + (pre.length ? `\nLes recuerdo ${pre.join(", ")} antes.` : "")
+    + (inCal ? "\n📅 Ya está en Google Calendar ✅" : ""), kb];
 }
 
 /** Recordatorio desde texto: primero formato fijo ("30m vitamina"); si no, IA. */
@@ -482,6 +564,31 @@ async function createAppointmentFromText(app: App, cg: Caregiver, chatId: string
     } catch (e) { console.warn("IA control", String(e)); }
   }
   return ["❌ No entendí la fecha. " + APPT_PROMPT.slice(2), null];
+}
+
+const COURSE_PROMPT = "💊 Cuéntame el tratamiento: medicina, dosis, cada cuántas horas, por cuántos días y desde qué hora.\n"
+  + "Ej: <i>amoxicilina 2.5 ml cada 8 horas por 7 días desde las 8 am</i>";
+
+async function courseFromAction(app: App, cg: Caregiver, x: Action): Promise<Reply> {
+  const name = String(x.name ?? "").trim();
+  const every = Number(x.every_hours);
+  if (!name || !(every >= 1 && every <= 72)) return ["❌ Me faltó la medicina o cada cuántas horas. " + COURSE_PROMPT.slice(2), null];
+  const dose = String(x.dose ?? "").trim();
+  const label = `${name}${dose ? " " + dose : ""}`.slice(0, 80);
+  const first = x.start_time && T.parseHHMM(String(x.start_time)) ? nextAt(app, String(x.start_time)) : app.now() + every * T.HOUR;
+  const days = Number(x.days);
+  const endsAt = days >= 1 && days <= 90 ? first + days * T.DAY - T.MIN : null;
+  return insertReminder(app, cg, `💊 ${label}`, first, Math.round(every * 60), { action: `medicine:${label}`, endsAt });
+}
+
+async function createCourse(app: App, cg: Caregiver, text: string): Promise<Reply> {
+  if (!aiEnabled(app.env)) return ["Para tratamientos necesito la IA activa 🙈 Usa ⏰ Recordatorio con «cada 8h».", null];
+  try {
+    const acts = await interpret(app, "tratamiento: " + text);
+    const c = acts.find((a) => a.type === "medication");
+    if (c) return courseFromAction(app, cg, c);
+  } catch (e) { console.warn("IA tratamiento", String(e)); }
+  return ["❌ No lo entendí. " + COURSE_PROMPT.slice(2), null];
 }
 
 function reminderFromAction(app: App, r: Action): { text: string; due: number; repeat: number | null } | null {
@@ -542,7 +649,14 @@ async function handleState(app: App, cg: Caregiver, chatId: string, st: State, t
       return logReply(app, cg, chatId, "medicine", { detail: text.trim().slice(0, 80) });
     case "note":
       await clearState(app, chatId);
-      return logReply(app, cg, chatId, "note", { note: text.trim().slice(0, 2000) });
+      return noteReply(app, cg, text);
+    case "tummy":
+      if (num === null) return null;
+      await clearState(app, chatId);
+      return logReply(app, cg, chatId, "tummy", { amount: num || null });
+    case "course":
+      await clearState(app, chatId);
+      return createCourse(app, cg, text);
     case "rem":
       await clearState(app, chatId);
       return createReminderFromText(app, cg, text);
@@ -607,8 +721,17 @@ async function runActions(app: App, cg: Caregiver, chatId: string, actions: Acti
           break;
         }
         case "note": {
-          const e = await save(app, cg, chatId, "note", { note: String(x.text ?? original).slice(0, 2000) });
+          extra.push(await noteReply(app, cg, String(x.text ?? original)));
+          break;
+        }
+        case "tummy": {
+          const amount = typeof x.amount === "number" && x.amount > 0 && x.amount < 180 ? x.amount : null;
+          const e = await save(app, cg, chatId, "tummy", { amount, start: at });
           lines.push(savedLine(app, e)); ids.push(e.id);
+          break;
+        }
+        case "medication": {
+          extra.push(await courseFromAction(app, cg, x));
           break;
         }
         case "sleep_start": {
@@ -737,8 +860,59 @@ async function handleCallback(app: App, cg: Caregiver, chatId: string, data: str
       return void (await edit("🗑️ Recordatorio cancelado."));
     }
     case "rmappt": {
-      await app.db.prepare("DELETE FROM appointments WHERE id = ?").bind(Number(p[1])).run();
-      return void (await edit("🗑️ Control borrado."));
+      const a = await app.deleteAppointment(Number(p[1]));
+      return void (await edit(a?.gcal_event_id ? "🗑️ Control borrado (también de Google Calendar)." : "🗑️ Control borrado."));
+    }
+    case "rdone": {
+      const r = await app.db.prepare("SELECT * FROM reminders WHERE id = ?").bind(Number(p[1])).first<any>();
+      if (!r) return void (await edit("Ese recordatorio ya no existe."));
+      const key = `rdone:${p[1]}:${p[2]}`;
+      const who = await app.kvGet(key);
+      if (who) return void (await edit(`✅ ${esc(r.text)}\n<i>Ya lo marcó ${esc(who)}.</i>`));
+      await app.kvSet(key, cg.name);
+      const act = String(r.action ?? "");
+      let logged = "";
+      if (act.startsWith("medicine:")) logged = savedLine(app, await save(app, cg, chatId, "medicine", { detail: act.slice(9, 89) }));
+      else if (act === "tummy") logged = savedLine(app, await save(app, cg, chatId, "tummy", {}));
+      else if (act === "bath") logged = savedLine(app, await save(app, cg, chatId, "bath", {}));
+      return void (await edit(`✅ <b>Hecho</b> por ${esc(cg.name)} · ${app.fmtTime(app.now())}\n${esc(r.text)}${logged ? "\n" + logged : ""}`));
+    }
+    case "rsnz": {
+      const r = await app.db.prepare("SELECT * FROM reminders WHERE id = ?").bind(Number(p[1])).first<any>();
+      if (!r) return void (await edit("Ese recordatorio ya no existe."));
+      const n = await app.createReminder({ text: r.text, due: app.now() + 10 * T.MIN, author: cg.name, action: r.action });
+      return void (await edit(`⏰ ${esc(r.text)}\n<i>Te lo recuerdo de nuevo a las ${app.fmtTime(n.due_at)}.</i>`));
+    }
+    case "nd": {
+      await app.db.prepare("UPDATE notes SET done = 1 WHERE id = ?").bind(Number(p[1])).run();
+      return void (await edit(await app.notesText(), await notesKeyboard(app)));
+    }
+    case "ndel": {
+      await app.db.prepare("DELETE FROM notes WHERE id = ?").bind(Number(p[1])).run();
+      return void (await edit("↩️ Nota borrada."));
+    }
+    case "tm": {
+      await clearState(app, chatId);
+      const [t, kb] = await logReply(app, cg, chatId, "tummy", { amount: toFloat(p[1]) || null });
+      return void (await edit(t, kb as Keyboard));
+    }
+    case "rt": {
+      if (p[1] === "course") {
+        await setState(app, chatId, "course");
+        return void (await edit(COURSE_PROMPT));
+      }
+      const r = ROUTINES[p[1]];
+      if (!r) return;
+      return void (await edit(`${esc(r.label)}\n¿A qué hora?`, [
+        ...r.options.map(([label], i) => [{ text: `🕐 ${label}`, callback_data: `rth:${p[1]}:${i}` }]),
+        [{ text: "✖️ Cancelar", callback_data: "cancel" }],
+      ]));
+    }
+    case "rth": {
+      const r = ROUTINES[p[1]];
+      const opt = r?.options[Number(p[2])];
+      if (!r || !opt) return;
+      return void (await edit(await createRoutine(app, cg, p[1], opt[1])));
     }
     case "m": {
       const prompts: Record<string, [string, string]> = {
@@ -756,6 +930,12 @@ async function handleCallback(app: App, cg: Caregiver, chatId: string, data: str
       if (p[1] === "bath") {
         const [t, kb] = await logReply(app, cg, chatId, "bath");
         return void (await edit(t, kb as Keyboard));
+      }
+      if (p[1] === "notes") return void (await tgSend(app.env, chatId, await app.notesText(), await notesKeyboard(app)));
+      if (p[1] === "rut") return void (await edit("🗓️ <b>Rutinas</b> — elige una y te la recuerdo siempre:", routinesKeyboard()));
+      if (p[1] === "tummy") {
+        await setState(app, chatId, "tummy");
+        return void (await edit("🧸 ¿Cuántos minutos de tummy time? Toca o escribe el número.", tummyKeyboard()));
       }
       if (p[1] === "today") return void (await tgSend(app.env, chatId, await app.todayText()));
       if (p[1] === "agenda") return void (await tgSend(app.env, chatId, await app.agendaText()));

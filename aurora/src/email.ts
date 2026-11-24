@@ -49,17 +49,46 @@ export async function hmacHex(key: string, msg: string): Promise<string> {
 export const emailKey = async (env: Env) => (await hmacHex(env.SECRET_KEY, "email-relay")).slice(0, 32);
 
 /** Código para pegar en script.google.com (ya trae la clave de esta app). */
+export const SCRIPT_VERSION = 2;
+
 export function scriptCode(key: string, babyName: string): string {
-  return `// Tasky · envío de correos desde tu Gmail (gratis)
+  const name = babyName.replace(/[^\p{L}\p{N} ]/gu, "");
+  return `// Tasky · correos y Google Calendar desde tu cuenta de Google (gratis) · versión ${SCRIPT_VERSION}
 // 1) Pega este código  2) Ejecuta "probar" una vez y acepta permisos
 // 3) Implementar > Nueva implementación > Aplicación web
 //    Ejecutar como: Yo · Quién tiene acceso: Cualquier usuario
+//    (si ya lo tenías: Implementar > Gestionar implementaciones > ✏️ > Versión: Nueva versión > Implementar)
 const CLAVE = "${key}";
+const VERSION = ${SCRIPT_VERSION};
 
 function doPost(e) {
   try {
     const d = JSON.parse(e.postData.contents);
     if (d.key !== CLAVE) return out({ ok: false, error: "clave incorrecta" });
+
+    if (d.action === "ping") return out({ ok: true, version: VERSION });
+
+    if (d.action === "calendar_create") {
+      const me = Session.getEffectiveUser().getEmail().toLowerCase();
+      const guests = (d.guests || []).filter(function (g) { return String(g).toLowerCase() !== me; });
+      const ev = CalendarApp.getDefaultCalendar().createEvent(String(d.title).slice(0, 200), new Date(d.start), new Date(d.end), {
+        location: String(d.location || ""),
+        description: String(d.description || ""),
+        guests: guests.join(","),
+        sendInvites: guests.length > 0,
+      });
+      ev.removeAllReminders();
+      (d.popups || []).slice(0, 5).forEach(function (m) { ev.addPopupReminder(Number(m)); });
+      return out({ ok: true, id: ev.getId() });
+    }
+
+    if (d.action === "calendar_delete") {
+      const ev = CalendarApp.getDefaultCalendar().getEventById(String(d.id));
+      if (ev) ev.deleteEvent();
+      return out({ ok: true });
+    }
+
+    // Correo
     const to = (d.to || []).filter(function (x) { return /^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$/.test(x); }).slice(0, 5);
     if (!to.length) return out({ ok: false, error: "sin destinatarios" });
     MailApp.sendEmail({
@@ -67,7 +96,7 @@ function doPost(e) {
       subject: String(d.subject || "Tasky").slice(0, 200),
       htmlBody: String(d.html || ""),
       body: String(d.text || ""),
-      name: "Tasky · ${babyName.replace(/[^\p{L}\p{N} ]/gu, "")}",
+      name: "Tasky · ${name}",
     });
     return out({ ok: true, quota: MailApp.getRemainingDailyQuota() });
   } catch (err) {
@@ -79,9 +108,11 @@ function out(o) {
   return ContentService.createTextOutput(JSON.stringify(o)).setMimeType(ContentService.MimeType.JSON);
 }
 
-// Ejecútala una vez desde el editor para dar permisos (te llega un correo de prueba).
+// Ejecútala una vez desde el editor para dar permisos de Gmail y Calendar.
 function probar() {
-  MailApp.sendEmail(Session.getActiveUser().getEmail(), "Tasky: permisos listos ✅", "Ya puedes implementar el script como aplicación web.");
+  const cal = CalendarApp.getDefaultCalendar().getName();
+  MailApp.sendEmail(Session.getActiveUser().getEmail(), "Tasky: permisos listos ✅",
+    "Correo y calendario (" + cal + ") listos. Ya puedes implementar el script como aplicación web.");
 }
 `;
 }

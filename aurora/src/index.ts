@@ -1,8 +1,8 @@
 import { handleUpdate, setupWebhook, timingSafeEqual } from "./bot";
 import { HttpError, type Env } from "./env";
-import { App, Appointment, Entry, escapeHtml, KINDS, Reminder } from "./logic";
+import { App, Appointment, Entry, escapeHtml, KINDS, Note, Reminder } from "./logic";
 import { tgEnabled } from "./tg";
-import { DEFAULT_OPTS, emailKey, googleCalendarUrl, hmacHex, isEmail, normalizeScriptUrl, scriptCode } from "./email";
+import { DEFAULT_OPTS, emailKey, googleCalendarUrl, hmacHex, isEmail, normalizeScriptUrl, SCRIPT_VERSION, scriptCode } from "./email";
 import * as T from "./time";
 
 // ------------------------------------------------------------------ utilidades
@@ -59,9 +59,13 @@ function idOf(s: string): number {
 
 const apptOut = (a: Appointment) => ({
   id: a.id, title: a.title, at: T.iso(a.at), place: a.place, notes: a.notes, done: !!a.done,
-  calendar_url: googleCalendarUrl(a.title, a.at, a.place),
+  calendar_url: googleCalendarUrl(a.title, a.at, a.place), in_calendar: !!a.gcal_event_id,
 });
-const remOut = (r: Reminder) => ({ id: r.id, text: r.text, due_at: T.iso(r.due_at), repeat_minutes: r.repeat_minutes, active: !!r.active });
+const noteOut = (n: Note) => ({ id: n.id, text: n.text, done: !!n.done, author: n.author, created_at: T.iso(n.created_at) });
+const remOut = (r: Reminder) => ({
+  id: r.id, text: r.text, due_at: T.iso(r.due_at), repeat_minutes: r.repeat_minutes, active: !!r.active,
+  ends_at: T.iso(r.ends_at), action: r.action,
+});
 
 // ------------------------------------------------------------------ rutas
 
@@ -87,11 +91,15 @@ async function route(req: Request, env: Env, ctx: ExecutionContext): Promise<Res
   if (path.startsWith("/__test/")) {
     if (env.TEST_MODE !== "1") return json({ detail: "No encontrado" }, 404);
     if (path === "/__test/reset") {
-      await env.DB.batch(["entries", "appointments", "reminders", "caregivers", "kv", "auth_fails", "chat_state"]
+      await env.DB.batch(["entries", "appointments", "reminders", "caregivers", "kv", "auth_fails", "chat_state", "notes"]
         .map((t) => env.DB.prepare(`DELETE FROM ${t}`)));
       return json({ ok: true });
     }
-    if (path === "/__test/tick") return json({ sent: await app.tick() });
+    if (path === "/__test/tick") {
+      const at = url.searchParams.get("at");
+      if (at) app.nowOverride = Number(at);
+      return json({ sent: await app.tick() });
+    }
     if (path === "/__test/webhook-secret") return json({ secret: await webhookSecret(env) });
   }
 
@@ -221,18 +229,18 @@ async function route(req: Request, env: Env, ctx: ExecutionContext): Promise<Res
     const b = await body(req);
     const title = str(b.title, 120, "título", true)!;
     const at = dateOf(app, b.at, "fecha", true)!;
-    const a = await env.DB.prepare("INSERT INTO appointments (title, at, place, notes, author) VALUES (?, ?, ?, ?, ?) RETURNING *")
-      .bind(title, at, str(b.place, 160, "lugar"), str(b.notes, 2000, "notas"), author).first<Appointment>();
-    ctx.waitUntil(app.broadcast(`📅 ${escapeHtml(author || "Alguien")} agendó: ${escapeHtml(title)} — ${app.fmtTime(at)}`,
+    const [a] = await app.createAppointment({ title, at, place: str(b.place, 160, "lugar"), notes: str(b.notes, 2000, "notas"), author });
+    ctx.waitUntil(app.broadcast(`📅 ${escapeHtml(author || "Alguien")} agendó: ${escapeHtml(title)} — ${app.fmtTime(a.at)}`,
       { excludeName: author, onlySubscribed: true }));
-    return json(apptOut(a!));
+    const fresh = await env.DB.prepare("SELECT * FROM appointments WHERE id = ?").bind(a.id).first<Appointment>();
+    return json(apptOut(fresh!));
   }
 
   if ((m = path.match(/^\/api\/appointments\/([^/]+)(\/done)?$/))) {
     const id = idOf(m[1]);
     const a = await env.DB.prepare("SELECT * FROM appointments WHERE id = ?").bind(id).first<Appointment>();
     if (method === "DELETE" && !m[2]) {
-      if (a) await env.DB.prepare("DELETE FROM appointments WHERE id = ?").bind(id).run();
+      await app.deleteAppointment(id);
       return json({ ok: true });
     }
     if (!a) throw new HttpError(404, "No encontrado");
@@ -242,15 +250,13 @@ async function route(req: Request, env: Env, ctx: ExecutionContext): Promise<Res
     }
     if (method === "PATCH" && !m[2]) {
       const b = await body(req);
+      // Más simple y seguro: se reemplaza (recalcula avisos y el evento de Calendar)
+      const title = str(b.title, 120, "título", true)!;
       const at = dateOf(app, b.at, "fecha", true)!;
-      const reset = at !== a.at;
-      const u = await env.DB.prepare(
-        `UPDATE appointments SET title = ?, at = ?, place = ?, notes = ?,
-         notified_24h = CASE WHEN ? THEN 0 ELSE notified_24h END, notified_2h = CASE WHEN ? THEN 0 ELSE notified_2h END
-         WHERE id = ? RETURNING *`,
-      ).bind(str(b.title, 120, "título", true), at, str(b.place, 160, "lugar"), str(b.notes, 2000, "notas"),
-        reset ? 1 : 0, reset ? 1 : 0, id).first<Appointment>();
-      return json(apptOut(u!));
+      await app.deleteAppointment(id);
+      const [n] = await app.createAppointment({ title, at, place: str(b.place, 160, "lugar"), notes: str(b.notes, 2000, "notas"), author: a.author });
+      const fresh = await env.DB.prepare("SELECT * FROM appointments WHERE id = ?").bind(n.id).first<Appointment>();
+      return json(apptOut(fresh!));
     }
   }
 
@@ -268,14 +274,34 @@ async function route(req: Request, env: Env, ctx: ExecutionContext): Promise<Res
       repeat = Number(b.repeat_minutes);
       if (!Number.isInteger(repeat) || repeat < 5 || repeat > 60 * 24 * 30) throw new HttpError(422, "Repetición inválida");
     }
-    const r = await env.DB.prepare("INSERT INTO reminders (text, due_at, repeat_minutes, active, author) VALUES (?, ?, ?, 1, ?) RETURNING *")
-      .bind(text, due, repeat, author).first<Reminder>();
-    return json(remOut(r!));
+    const r = await app.createReminder({ text, due, repeat, author });
+    return json(remOut(r));
   }
 
   if ((m = path.match(/^\/api\/reminders\/([^/]+)$/)) && method === "DELETE") {
     await env.DB.prepare("DELETE FROM reminders WHERE id = ?").bind(idOf(m[1])).run();
     return json({ ok: true });
+  }
+
+  // ---------------- libreta de notas
+  if (path === "/api/notes" && method === "GET") {
+    return json((await app.listNotes(url.searchParams.get("all") === "1", 200)).map(noteOut));
+  }
+  if (path === "/api/notes" && method === "POST") {
+    const b = await body(req);
+    return json(noteOut(await app.addNote(str(b.text, 1000, "nota", true)!, author)));
+  }
+  if ((m = path.match(/^\/api\/notes\/([^/]+)(\/done)?$/))) {
+    const id = idOf(m[1]);
+    if (method === "DELETE" && !m[2]) {
+      await env.DB.prepare("DELETE FROM notes WHERE id = ?").bind(id).run();
+      return json({ ok: true });
+    }
+    if (method === "POST" && m[2]) {
+      const n = await env.DB.prepare("UPDATE notes SET done = 1 - done WHERE id = ? RETURNING *").bind(id).first<Note>();
+      if (!n) throw new HttpError(404, "No encontrado");
+      return json(noteOut(n));
+    }
   }
 
   // ---------------- ajustes y respaldo
@@ -288,16 +314,18 @@ async function route(req: Request, env: Env, ctx: ExecutionContext): Promise<Res
   }
 
   if (path === "/api/export" && method === "GET") {
-    const [e, a, r] = await Promise.all([
+    const [e, a, r, n] = await Promise.all([
       env.DB.prepare("SELECT * FROM entries ORDER BY start_at").all<Entry>(),
       env.DB.prepare("SELECT * FROM appointments ORDER BY at").all<Appointment>(),
       env.DB.prepare("SELECT * FROM reminders ORDER BY id").all<Reminder>(),
+      env.DB.prepare("SELECT * FROM notes ORDER BY id").all<Note>(),
     ]);
     return json({
       exported_at: T.iso(app.now()),
       entries: e.results.map((x) => app.entryOut(x)),
       appointments: a.results.map(apptOut),
       reminders: r.results.map(remOut),
+      notes: n.results.map(noteOut),
     });
   }
 
@@ -305,7 +333,10 @@ async function route(req: Request, env: Env, ctx: ExecutionContext): Promise<Res
   if (path === "/api/email" && method === "GET") {
     const cfg = await app.emailConfig();
     return json({ configured: !!(cfg.url && cfg.to.length), url: cfg.url, to: cfg.to, opts: cfg.opts,
-      script: scriptCode(await emailKey(env), app.babyName) });
+      script: scriptCode(await emailKey(env), app.babyName),
+      script_version: Number(await app.kvGet("script_version")) || (cfg.url ? 1 : 0),
+      latest_version: SCRIPT_VERSION,
+      calendar_auto: (await app.kvGet("calendar_auto")) !== "0" });
   }
 
   if (path === "/api/email" && method === "PUT") {
@@ -331,7 +362,9 @@ async function route(req: Request, env: Env, ctx: ExecutionContext): Promise<Res
     await app.kvSet("email_url", u);
     await app.kvSet("email_to", JSON.stringify([...new Set(to)]));
     await app.kvSet("email_opts", JSON.stringify(opts));
-    return json({ ok: true });
+    await app.kvSet("calendar_auto", b.calendar_auto === false ? "0" : "1");
+    const version = u ? await app.checkScript() : 0;
+    return json({ ok: true, script_version: version });
   }
 
   if (path === "/api/email/test" && method === "POST") {
@@ -339,7 +372,7 @@ async function route(req: Request, env: Env, ctx: ExecutionContext): Promise<Res
       `¡Hola! Este es un correo de prueba de <b>Tasky</b>, el asistente de <b>${escapeHtml(app.babyName)}</b>.\n\n`
       + `Aquí te llegarán los recordatorios, los controles médicos, las alertas de comida y el resumen del día.`);
     if (!res.ok) throw new HttpError(502, "No se pudo enviar: " + (res.error ?? "error desconocido"));
-    return json({ ok: true });
+    return json({ ok: true, script_version: await app.checkScript() });
   }
 
   if (path === "/api/telegram/setup" && method === "POST") {
@@ -363,7 +396,10 @@ export default {
     }
   },
 
-  async scheduled(_ev: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
-    ctx.waitUntil(new App(env).tick().then((sent) => { if (sent.length) console.log("Avisos enviados", sent); }));
+  async scheduled(ev: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
+    const app = new App(env);
+    // La hora programada del cron (13:02:00.000) manda: así nunca se corre un minuto.
+    app.nowOverride = Math.max(Date.now(), ev.scheduledTime);
+    ctx.waitUntil(app.tick().then((sent) => { if (sent.length) console.log("Avisos enviados", sent); }));
   },
 } satisfies ExportedHandler<Env>;

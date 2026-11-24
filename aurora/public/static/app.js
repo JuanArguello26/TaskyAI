@@ -207,7 +207,7 @@ $("#refresh").addEventListener("click", () => refresh().then(() => toast("Actual
 
 // ------------------------------------------------------------ hoja de registro
 const TITLES = { feed: "🍼 Comida", sleep: "😴 Sueño", diaper: "🧷 Pañal", bath: "🛁 Baño", medicine: "💊 Medicina",
-  temp: "🌡️ Temperatura", weight: "⚖️ Peso", note: "📝 Nota" };
+  temp: "🌡️ Temperatura", weight: "⚖️ Peso", note: "📝 Diario", tummy: "🧸 Tummy time" };
 let sheet = null; // {kind, id?, detail, amount}
 
 function opts(name, list, current) {
@@ -233,6 +233,9 @@ function renderSheetBody() {
     h += `<label>Medicina y dosis<input id="detail" maxlength="80" value="${esc(detail || "")}" placeholder="Ej: Vitamina D 2 gotas"></label>`;
   } else if (kind === "temp") {
     h += `<label>Temperatura (°C)<input id="amount" type="number" inputmode="decimal" step="0.1" min="30" max="45" value="${amount ?? ""}" required></label>`;
+  } else if (kind === "tummy") {
+    h += `<label>Minutos (opcional)<input id="amount" type="number" inputmode="decimal" step="any" min="0" max="180" value="${amount ?? ""}"></label>`;
+    h += `<div class="ml-opts">${[2, 3, 5, 10, 15].map((v) => `<button type="button" class="chip" data-ml="${v}">${v} min</button>`).join("")}</div>`;
   } else if (kind === "weight") {
     h += `<label>Peso (kg)<input id="amount" type="number" inputmode="decimal" step="0.01" min="0.5" max="40" value="${amount ?? ""}" required></label>`;
   }
@@ -244,7 +247,7 @@ function renderSheetBody() {
   }));
   $$("[data-ml]").forEach((b) => b.addEventListener("click", () => { $("#amount").value = b.dataset.ml; }));
   $("#end-wrap").classList.toggle("hidden", kind !== "sleep");
-  $("#note-input").placeholder = kind === "note" ? "Escribe la nota" : "Nota (opcional)";
+  $("#note-input").placeholder = kind === "note" ? "¿Qué pasó hoy? (diario de la bebé)" : "Nota (opcional)";
   $("#note-input").required = kind === "note";
 }
 
@@ -369,16 +372,18 @@ async function loadAgenda() {
   $("#appts").innerHTML = appts.length ? `<div class="list">${appts.map((a) => `
     <div class="item ${a.done ? "done" : ""}">
       <div class="body"><div>${esc(a.title)}</div><div class="sub">${esc(when(a.at))}${a.place ? " · " + esc(a.place) : ""}</div></div>
-      <a class="btn mini" href="${esc(a.calendar_url)}" target="_blank" rel="noopener" title="Agregar a Google Calendar">📅</a>
+      ${a.in_calendar ? `<span class="mini muted" title="Ya está en Google Calendar">📅✅</span>`
+        : `<a class="btn mini" href="${esc(a.calendar_url)}" target="_blank" rel="noopener" title="Agregar a Google Calendar">📅</a>`}
       <button class="btn mini" data-done="${a.id}">${a.done ? "↩️" : "✓"}</button>
       <button class="btn mini danger" data-del-appt="${a.id}">🗑</button>
     </div>`).join("")}</div>` : `<div class="empty">Sin controles agendados</div>`;
   $("#rems").innerHTML = rems.length ? `<div class="list">${rems.map((r) => `
     <div class="item">
-      <div class="body"><div>${esc(r.text)}</div><div class="sub">${esc(when(r.due_at))}${r.repeat_minutes ? " · " + every(r.repeat_minutes) : ""}</div></div>
+      <div class="body"><div>${esc(r.text)}</div><div class="sub">${esc(when(r.due_at))}${r.repeat_minutes ? " · " + every(r.repeat_minutes) : ""}${r.ends_at ? " · hasta " + esc(when(r.ends_at)) : ""}</div></div>
       <button class="btn mini danger" data-del-rem="${r.id}">🗑</button>
     </div>`).join("")}</div>` : `<div class="empty">Sin recordatorios activos</div>`;
 
+  await loadNotes();
   $$("[data-done]").forEach((b) => b.addEventListener("click", async () => {
     await api(`/api/appointments/${b.dataset.done}/done`, { method: "POST" }); loadAgenda();
   }));
@@ -389,6 +394,34 @@ async function loadAgenda() {
     await api(`/api/reminders/${b.dataset.delRem}`, { method: "DELETE" }); loadAgenda(); loadStatus();
   })));
 }
+
+// ------------------------------------------------------------ notas
+let showDoneNotes = false;
+async function loadNotes() {
+  const notes = await api("/api/notes" + (showDoneNotes ? "?all=1" : ""));
+  $("#notes").innerHTML = notes.length ? `<div class="list">${notes.map((n) => `
+    <div class="item ${n.done ? "done" : ""}">
+      <label class="check grow-1"><input type="checkbox" data-note-done="${n.id}" ${n.done ? "checked" : ""}>
+        <div class="body"><div>${esc(n.text)}</div>${n.author ? `<div class="sub">${esc(n.author)} · ${esc(when(n.created_at))}</div>` : ""}</div></label>
+      <button class="btn mini danger" data-del-note="${n.id}">🗑</button>
+    </div>`).join("")}</div>` : `<div class="empty">Sin notas pendientes</div>`;
+  $$("[data-note-done]").forEach((c) => c.addEventListener("change", async () => {
+    await api(`/api/notes/${c.dataset.noteDone}/done`, { method: "POST" }); loadNotes();
+  }));
+  $$("[data-del-note]").forEach((b) => b.addEventListener("click", () => confirmBtn(b, async () => {
+    await api(`/api/notes/${b.dataset.delNote}`, { method: "DELETE" }); loadNotes();
+  })));
+}
+$("#note-form").addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  try { await api("/api/notes", { method: "POST", body: { text: ev.target.text.value } }); ev.target.reset(); toast("📝 Anotado"); loadNotes(); }
+  catch (e) { toast(e.message); }
+});
+$("#notes-done-toggle").addEventListener("click", (ev) => {
+  showDoneNotes = !showDoneNotes;
+  ev.currentTarget.textContent = showDoneNotes ? "Ocultar las hechas" : "Ver también las hechas";
+  loadNotes().catch((e) => toast(e.message));
+});
 
 function defaultDue(form, name, minutes) {
   if (!form[name].value) form[name].value = toInput(new Date(Date.now() + minutes * 60000));
@@ -451,6 +484,15 @@ async function loadEmail() {
   $("#email-to").value = (e.to || []).join("\n");
   for (const k of ["reminders", "appointments", "feed", "summary"]) $("#eo-" + k).checked = !!e.opts[k];
   hourSel.value = String(e.opts.summary_hour);
+  $("#eo-calendar").checked = !!e.calendar_auto;
+  const upd = $("#script-update");
+  const outdated = e.configured && e.script_version < e.latest_version;
+  upd.classList.toggle("hidden", !outdated);
+  if (outdated) {
+    upd.innerHTML = `⚠️ <b>Actualiza tu script</b> para que los controles se agreguen solos a Google Calendar: `
+      + `toca <b>📋 Copiar código</b>, reemplaza todo el código en Google, guarda, ejecuta <b>probar</b> (acepta el permiso de Calendar) y en `
+      + `<b>Implementar → Gestionar implementaciones → ✏️ → Versión: Nueva versión → Implementar</b>. Luego toca <b>Guardar</b> aquí.`;
+  }
   $("#email-status").textContent = e.configured ? "✅ Correo conectado." : "Conecta tu Gmail para recibir los avisos también por correo (gratis).";
   $("#email-steps").open = !e.configured;
 }
@@ -460,6 +502,7 @@ function emailBody() {
     to: $("#email-to").value.split(/[\s,;]+/).map((x) => x.trim()).filter(Boolean),
     opts: { reminders: $("#eo-reminders").checked, appointments: $("#eo-appointments").checked, feed: $("#eo-feed").checked,
       summary: $("#eo-summary").checked, summary_hour: Number(hourSel.value) },
+    calendar_auto: $("#eo-calendar").checked,
   };
 }
 $("#copy-script").addEventListener("click", async () => {

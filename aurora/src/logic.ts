@@ -4,8 +4,9 @@ import type { Env } from "./env";
 import * as T from "./time";
 import { tgSend } from "./tg";
 import { DEFAULT_OPTS, emailHtml, htmlToText, postEmail, type EmailCategory, type EmailOpts } from "./email";
+import type { Keyboard } from "./tg";
 
-export const KINDS = ["feed", "sleep", "diaper", "bath", "medicine", "temp", "weight", "note"] as const;
+export const KINDS = ["feed", "sleep", "diaper", "bath", "medicine", "temp", "weight", "note", "tummy"] as const;
 
 export interface Entry {
   id: number; kind: string; start_at: number; end_at: number | null; detail: string | null;
@@ -13,16 +14,18 @@ export interface Entry {
 }
 export interface Appointment {
   id: number; title: string; at: number; place: string | null; notes: string | null; done: number;
-  notified_24h: number; notified_2h: number; author: string | null;
+  notified_24h: number; notified_12h: number; notified_2h: number; author: string | null; gcal_event_id: string | null;
 }
 export interface Reminder {
   id: number; text: string; due_at: number; repeat_minutes: number | null; active: number; author: string | null;
+  pre_60_sent: number; pre_10_sent: number; action: string | null; ends_at: number | null;
 }
+export interface Note { id: number; text: string; done: number; author: string | null; created_at: number }
 export interface Caregiver { id: number; name: string; chat_id: string; notify_others: number }
 
 export const KIND_LABEL: Record<string, string> = {
   feed: "🍼 Comida", sleep: "😴 Sueño", diaper: "🧷 Pañal", bath: "🛁 Baño",
-  medicine: "💊 Medicina", temp: "🌡️ Temperatura", weight: "⚖️ Peso", note: "📝 Nota",
+  medicine: "💊 Medicina", temp: "🌡️ Temperatura", weight: "⚖️ Peso", note: "📝 Nota", tummy: "🧸 Tummy time",
 };
 export const DETAIL_LABEL: Record<string, string> = {
   pecho_izq: "pecho izquierdo", pecho_der: "pecho derecho", pecho: "pecho", pecho_ambos: "ambos pechos", biberon: "biberón", formula: "fórmula",
@@ -49,8 +52,11 @@ export class App {
     this.feedAlertHours = Number.isFinite(h) ? h : 3;
   }
 
+  /** Solo pruebas: simular otra hora. */
+  nowOverride: number | null = null;
+
   now(): number {
-    return Date.now();
+    return this.nowOverride ?? Date.now();
   }
 
   fmtTime(ms: number): string {
@@ -77,6 +83,8 @@ export class App {
       parts.push(`${num(e.amount)} °C`);
     } else if (e.kind === "weight" && e.amount) {
       parts.push(`${num(e.amount)} kg`);
+    } else if (e.kind === "tummy" && e.amount) {
+      parts.push(`${num(e.amount)} min`);
     } else if (e.kind === "medicine" && e.detail) {
       parts.push(e.detail);
     }
@@ -110,13 +118,13 @@ export class App {
     return (await this.db.prepare("SELECT * FROM caregivers ORDER BY id").all<Caregiver>()).results;
   }
 
-  async broadcast(text: string, opts: { excludeChat?: string | null; excludeName?: string | null; onlySubscribed?: boolean } = {}) {
+  async broadcast(text: string, opts: { excludeChat?: string | null; excludeName?: string | null; onlySubscribed?: boolean; kb?: Keyboard } = {}) {
     const tasks = [];
     for (const c of await this.caregivers()) {
       if (opts.excludeChat && c.chat_id === String(opts.excludeChat)) continue;
       if (opts.excludeName && c.name.trim().toLowerCase() === opts.excludeName.trim().toLowerCase()) continue;
       if (opts.onlySubscribed && !c.notify_others) continue;
-      tasks.push(tgSend(this.env, c.chat_id, text));
+      tasks.push(tgSend(this.env, c.chat_id, text, opts.kb));
     }
     await Promise.all(tasks);
     return tasks.length;
@@ -332,8 +340,106 @@ export class App {
   }
 
   /** Telegram a todos + correo (si aplica). */
-  async alert(category: EmailCategory, subject: string, tgHtml: string) {
-    await Promise.all([this.broadcast(tgHtml), this.email(category, subject, tgHtml)]);
+  async alert(category: EmailCategory | null, subject: string, tgHtml: string, kb?: Keyboard) {
+    await Promise.all([this.broadcast(tgHtml, { kb }), category ? this.email(category, subject, tgHtml) : null]);
+  }
+
+  // ------------------------------------------------------------ Google Calendar (vía el mismo script de Gmail)
+
+  async scriptCall(payload: Record<string, unknown>) {
+    const url = await this.kvGet("email_url");
+    if (!url) return { ok: false, error: "Script no configurado" } as { ok: boolean; error?: string; id?: string; version?: number };
+    return postEmail(this.env, url, payload) as Promise<{ ok: boolean; error?: string; id?: string; version?: number }>;
+  }
+
+  /** ¿El script del usuario ya sabe crear eventos? (versión 2+) */
+  async calendarReady(): Promise<boolean> {
+    return Number(await this.kvGet("script_version")) >= 2 && (await this.kvGet("calendar_auto")) !== "0";
+  }
+
+  async checkScript(): Promise<number> {
+    const r = await this.scriptCall({ action: "ping" });
+    const v = r.ok && typeof r.version === "number" ? r.version : 1;
+    await this.kvSet("script_version", String(v));
+    return v;
+  }
+
+  /** Crea el evento del control en Google Calendar (e invita a los demás correos). */
+  async calendarCreate(a: Appointment): Promise<boolean> {
+    if (!(await this.calendarReady())) return false;
+    const cfg = await this.emailConfig();
+    const r = await this.scriptCall({
+      action: "calendar_create", title: `🩺 ${a.title} (${this.babyName})`, start: a.at, end: a.at + T.HOUR,
+      location: a.place ?? "", description: "Agendado con Tasky", guests: cfg.to, popups: [1440, 720, 120],
+    });
+    if (r.ok && r.id) {
+      await this.db.prepare("UPDATE appointments SET gcal_event_id = ? WHERE id = ?").bind(r.id, a.id).run();
+      return true;
+    }
+    console.warn("Calendar falló", r.error);
+    return false;
+  }
+
+  async calendarDelete(a: Appointment): Promise<void> {
+    if (!a.gcal_event_id) return;
+    await this.scriptCall({ action: "calendar_delete", id: a.gcal_event_id });
+  }
+
+  // ------------------------------------------------------------ crear recordatorios y controles
+
+  /** Recordatorio a minuto exacto, con avisos previos según el caso. */
+  async createReminder(o: { text: string; due: number; repeat?: number | null; action?: string | null; endsAt?: number | null; author: string | null }): Promise<Reminder> {
+    const now = this.now();
+    const due = Math.floor(o.due / T.MIN) * T.MIN;
+    const lead = due - now;
+    const repeat = o.repeat ?? null;
+    // Simple: 1 h y 10 min antes. Repetitivo: solo 10 min antes si es cada 3 h o más.
+    const pre60 = !repeat && lead > 70 * T.MIN ? 0 : 1;
+    const pre10 = lead > 15 * T.MIN && (!repeat || repeat >= 180) ? 0 : 1;
+    return (await this.db.prepare(
+      `INSERT INTO reminders (text, due_at, repeat_minutes, active, author, pre_60_sent, pre_10_sent, action, ends_at)
+       VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?) RETURNING *`,
+    ).bind(o.text.slice(0, 200), due, repeat, o.author, pre60, pre10, o.action ?? null, o.endsAt ?? null).first<Reminder>())!;
+  }
+
+  /** Control médico: avisos 24 h, 12 h y 2 h antes (los que ya pasaron se omiten) + Google Calendar. */
+  async createAppointment(o: { title: string; at: number; place?: string | null; notes?: string | null; author: string | null }): Promise<[Appointment, boolean]> {
+    const at = Math.floor(o.at / T.MIN) * T.MIN;
+    const left = at - this.now();
+    const a = (await this.db.prepare(
+      `INSERT INTO appointments (title, at, place, notes, author, notified_24h, notified_12h, notified_2h)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING *`,
+    ).bind(o.title.slice(0, 120), at, o.place?.slice(0, 160) || null, o.notes ?? null, o.author,
+      left <= 24 * T.HOUR ? 1 : 0, left <= 12 * T.HOUR ? 1 : 0, left <= 2 * T.HOUR ? 1 : 0).first<Appointment>())!;
+    const cal = await this.calendarCreate(a);
+    return [a, cal];
+  }
+
+  async deleteAppointment(id: number): Promise<Appointment | null> {
+    const a = await this.db.prepare("SELECT * FROM appointments WHERE id = ?").bind(id).first<Appointment>();
+    if (!a) return null;
+    await this.db.prepare("DELETE FROM appointments WHERE id = ?").bind(id).run();
+    await this.calendarDelete(a);
+    return a;
+  }
+
+  // ------------------------------------------------------------ libreta de notas
+
+  async addNote(text: string, author: string | null): Promise<Note> {
+    return (await this.db.prepare("INSERT INTO notes (text, author, created_at) VALUES (?, ?, ?) RETURNING *")
+      .bind(text.trim().slice(0, 1000), author, this.now()).first<Note>())!;
+  }
+
+  async listNotes(includeDone = false, limit = 50): Promise<Note[]> {
+    return (await this.db.prepare(
+      `SELECT * FROM notes ${includeDone ? "" : "WHERE done = 0"} ORDER BY done, created_at DESC LIMIT ?`,
+    ).bind(limit).all<Note>()).results;
+  }
+
+  async notesText(): Promise<string> {
+    const notes = await this.listNotes(false, 30);
+    if (!notes.length) return "📝 <b>Notas</b>\nNo tienes notas pendientes. Escribe <i>«anota: …»</i> para guardar una.";
+    return "📝 <b>Notas pendientes</b>\n" + notes.map((n, i) => `${i + 1}. ${escapeHtml(n.text)}`).join("\n");
   }
 
   async dailySummaryHtml(): Promise<string> {
@@ -347,39 +453,72 @@ export class App {
     const now = this.now();
     const sent: string[] = [];
 
-    const due = (await this.db.prepare("SELECT * FROM reminders WHERE active = 1 AND due_at <= ?").bind(now).all<Reminder>()).results;
+    // Todo lo que vence dentro de este minuto sale ahora (la 1:02 sale a la 1:02, no a la 1:03).
+    const until = Math.floor(now / T.MIN) * T.MIN + T.MIN;
+
+    // Avisos previos: 1 h y 10 min antes
+    const pres = (await this.db.prepare(
+      `SELECT * FROM reminders WHERE active = 1 AND due_at >= ?
+       AND ((pre_60_sent = 0 AND due_at - 3600000 < ?) OR (pre_10_sent = 0 AND due_at - 600000 < ?))`,
+    ).bind(until, until, until).all<Reminder>()).results;
+    for (const r of pres) {
+      const in10 = !r.pre_10_sent && r.due_at - 10 * T.MIN < until;
+      await this.db.prepare(`UPDATE reminders SET pre_60_sent = 1${in10 ? ", pre_10_sent = 1" : ""} WHERE id = ?`).bind(r.id).run();
+      const label = in10 ? "En 10 minutos" : "En 1 hora";
+      await this.alert(in10 ? null : "reminders", `⏰ ${label}: ${r.text}`,
+        `⏰ <b>${label}</b> (${this.fmtTime(r.due_at)}): ${escapeHtml(r.text)}`);
+      sent.push(`pre${in10 ? 10 : 60}:${r.id}`);
+    }
+
+    const due = (await this.db.prepare("SELECT * FROM reminders WHERE active = 1 AND due_at < ?").bind(until).all<Reminder>()).results;
     for (const r of due) {
       let msg = `⏰ <b>Recordatorio:</b> ${escapeHtml(r.text)}`;
+      const firedAt = r.due_at;
       if (r.repeat_minutes) {
         let next = r.due_at;
-        while (next <= now) next += r.repeat_minutes * T.MIN;
-        await this.db.prepare("UPDATE reminders SET due_at = ? WHERE id = ?").bind(next, r.id).run();
-        msg += `\n<i>Próximo: ${this.fmtTime(next)}</i>`;
+        while (next < until) next += r.repeat_minutes * T.MIN;
+        if (r.ends_at && next > r.ends_at) {
+          await this.db.prepare("UPDATE reminders SET active = 0 WHERE id = ?").bind(r.id).run();
+          msg += "\n<i>✅ Fue la última dosis/vez programada.</i>";
+        } else {
+          const pre10 = r.repeat_minutes >= 180 ? 0 : 1;
+          await this.db.prepare("UPDATE reminders SET due_at = ?, pre_10_sent = ?, pre_60_sent = 1 WHERE id = ?").bind(next, pre10, r.id).run();
+          msg += `\n<i>Próximo: ${this.fmtTime(next)}</i>`;
+        }
       } else {
         await this.db.prepare("UPDATE reminders SET active = 0 WHERE id = ?").bind(r.id).run();
       }
-      await this.alert("reminders", `⏰ Recordatorio: ${r.text}`, msg);
+      await this.alert("reminders", `⏰ Recordatorio: ${r.text}`, msg, [[
+        { text: "✅ Hecho", callback_data: `rdone:${r.id}:${Math.floor(firedAt / T.MIN)}` },
+        { text: "⏰ En 10 min", callback_data: `rsnz:${r.id}` },
+      ]]);
       sent.push(`reminder:${r.id}`);
     }
 
+    // Controles: 24 h, 12 h y 2 h antes
     const appts = (await this.db.prepare(
-      `SELECT * FROM appointments WHERE done = 0 AND at > ? AND at <= ?
-       AND (notified_24h = 0 OR notified_2h = 0)`,
-    ).bind(now, now + 24 * T.HOUR).all<Appointment>()).results;
+      `SELECT * FROM appointments WHERE done = 0 AND at >= ? AND at < ?
+       AND (notified_24h = 0 OR notified_12h = 0 OR notified_2h = 0)`,
+    ).bind(until, until + 24 * T.HOUR).all<Appointment>()).results;
     for (const a of appts) {
-      const left = a.at - now;
+      const left = a.at - until; // tiempo desde el final de este minuto
       const place = a.place ? `\n📍 ${escapeHtml(a.place)}` : "";
-      if (!a.notified_2h && left <= 2 * T.HOUR) {
-        await this.db.prepare("UPDATE appointments SET notified_2h = 1, notified_24h = 1 WHERE id = ?").bind(a.id).run();
-        await this.alert("appointments", `🩺 Control en ${T.fmtDur(left / 1000)}: ${a.title}`,
-          `📅 <b>Control en ${T.fmtDur(left / 1000)}:</b> ${escapeHtml(a.title)} (${this.fmtTime(a.at)})${place}`);
-        sent.push(`appt2h:${a.id}`);
+      const leftText = T.fmtDur((a.at - now) / 1000);
+      let stage: string | null = null;
+      if (!a.notified_2h && left < 2 * T.HOUR) {
+        stage = "2h";
+        await this.db.prepare("UPDATE appointments SET notified_2h = 1, notified_12h = 1, notified_24h = 1 WHERE id = ?").bind(a.id).run();
+      } else if (!a.notified_12h && left < 12 * T.HOUR) {
+        stage = "12h";
+        await this.db.prepare("UPDATE appointments SET notified_12h = 1, notified_24h = 1 WHERE id = ?").bind(a.id).run();
       } else if (!a.notified_24h) {
+        stage = "24h";
         await this.db.prepare("UPDATE appointments SET notified_24h = 1 WHERE id = ?").bind(a.id).run();
-        await this.alert("appointments", `🩺 Próximo control: ${a.title} — ${this.fmtTime(a.at)}`,
-          `📅 <b>Próximo control:</b> ${escapeHtml(a.title)} — ${this.fmtTime(a.at)}${place}`);
-        sent.push(`appt24h:${a.id}`);
       }
+      if (!stage) continue;
+      await this.alert("appointments", `🩺 Control en ${leftText}: ${a.title}`,
+        `🩺 <b>Control en ${leftText}:</b> ${escapeHtml(a.title)}\n🕐 ${this.fmtTime(a.at)}${place}`);
+      sent.push(`appt${stage}:${a.id}`);
     }
 
     if (this.feedAlertHours > 0) {
