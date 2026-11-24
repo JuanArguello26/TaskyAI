@@ -23,6 +23,9 @@ const AI_MAP = {
   "el control con la pediatra es el 2 de diciembre de 2027 a las 10 y media":
     { actions: [{ type: "appointment", date: "2027-12-02", time: "10:30", title: "Control con la pediatra", place: null }] },
   "30": { actions: [] },
+  "le hice masajes con aceite 10 minutos": { actions: [{ type: "activity", name: "masajes con aceite", amount: 10 }] },
+  "recuérdame masajes con aceite todos los días a las 7 pm":
+    { actions: [{ type: "reminder", time: "19:00", repeat_minutes: 1440, text: "masajes con aceite" }] },
   "tratamiento: amoxicilina 2.5 ml cada 8 horas por 7 días desde las 8":
     { actions: [{ type: "medication", name: "Amoxicilina", dose: "2.5 ml", every_hours: 8, days: 7, start_time: "08:00" }] },
   "hizo 5 minutos de tummy time y anota que hay que comprar pañales":
@@ -474,6 +477,25 @@ test("IA: tummy time + nota en un mensaje; tummy por botón", async () => {
   await tgButton("m:tummy", 1);
   assert.match(await tg("3", 1), /Tummy time · 3 min/);
   assert.equal((await api("/api/entries?kind=tummy")).data.length, 2);
+});
+
+test("rutina propia (cualquier texto) y ✅ Hecho la registra en el historial", async () => {
+  await tg(`/start ${PIN} Juan`, 1);
+  await tgButton("rt:custom", 1);
+  assert.match(await tg("masajes con aceite todos los días a las 7 pm", 1), /Listo, les aviso.*todos los días/s);
+  const [r] = (await api("/api/reminders")).data;
+  assert.equal(r.repeat_minutes, 1440);
+  SENT.length = 0;
+  await tick(Date.parse(r.due_at));
+  const done = kbData(SENT.find((x) => x.chat === "1")).find((d) => d.startsWith("rdone:"));
+  assert.match((await tgButton(done, 1)).text, /✨ Masajes con aceite/);
+  const [e] = (await api("/api/entries?kind=activity")).data;
+  assert.equal(e.text, "✨ Masajes con aceite");
+  // sin recordatorio, por IA
+  assert.match(await tg("le hice masajes con aceite 10 minutos", 1), /✨ Masajes con aceite · 10 min/);
+  // y desde la web
+  const w = (await api("/api/entries", { method: "POST", body: { kind: "activity", detail: "Baño de sol", amount: 15 } })).data;
+  assert.equal(w.text, "✨ Baño de sol · 15 min");
 });
 
 test("Google Calendar automático (script v2) y respaldo con enlace (script viejo)", async () => {

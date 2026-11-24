@@ -141,6 +141,7 @@ label { display: grid; gap: 6px; font-size: 14px; color: var(--muted); }
 .card.warn .card-v { color: var(--primary); }
 
 .actions { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; }
+@media (max-width: 400px) { .action { font-size: 11px; padding: 10px 2px; } .action span { font-size: 22px; } }
 .action {
   display: grid; justify-items: center; gap: 4px;
   font: inherit; font-size: 12px; color: var(--text);

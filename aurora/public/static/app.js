@@ -207,7 +207,7 @@ $("#refresh").addEventListener("click", () => refresh().then(() => toast("Actual
 
 // ------------------------------------------------------------ hoja de registro
 const TITLES = { feed: "🍼 Comida", sleep: "😴 Sueño", diaper: "🧷 Pañal", bath: "🛁 Baño", medicine: "💊 Medicina",
-  temp: "🌡️ Temperatura", weight: "⚖️ Peso", note: "📝 Diario", tummy: "🧸 Tummy time" };
+  temp: "🌡️ Temperatura", weight: "⚖️ Peso", note: "📝 Diario", tummy: "🧸 Tummy time", activity: "✨ Otra actividad" };
 let sheet = null; // {kind, id?, detail, amount}
 
 function opts(name, list, current) {
@@ -233,6 +233,9 @@ function renderSheetBody() {
     h += `<label>Medicina y dosis<input id="detail" maxlength="80" value="${esc(detail || "")}" placeholder="Ej: Vitamina D 2 gotas"></label>`;
   } else if (kind === "temp") {
     h += `<label>Temperatura (°C)<input id="amount" type="number" inputmode="decimal" step="0.1" min="30" max="45" value="${amount ?? ""}" required></label>`;
+  } else if (kind === "activity") {
+    h += `<label>¿Qué le hicieron?<input id="detail" maxlength="80" value="${esc(detail || "")}" placeholder="Ej: masajes, baño de sol, cortar uñas" required></label>`;
+    h += `<label>Minutos (opcional)<input id="amount" type="number" inputmode="decimal" step="any" min="0" max="600" value="${amount ?? ""}"></label>`;
   } else if (kind === "tummy") {
     h += `<label>Minutos (opcional)<input id="amount" type="number" inputmode="decimal" step="any" min="0" max="180" value="${amount ?? ""}"></label>`;
     h += `<div class="ml-opts">${[2, 3, 5, 10, 15].map((v) => `<button type="button" class="chip" data-ml="${v}">${v} min</button>`).join("")}</div>`;
@@ -291,7 +294,7 @@ $("#sheet").addEventListener("submit", async (ev) => {
   if (kind === "feed" && !(detail || "").startsWith("pecho")) {
     detail = $('[data-opt="detail2"].on')?.dataset.v || "biberon";
   }
-  if (kind === "medicine") detail = $("#detail").value.trim();
+  if (kind === "medicine" || kind === "activity") detail = $("#detail").value.trim();
   const amountEl = $("#amount");
   const amount = amountEl && amountEl.value !== "" ? Number(amountEl.value) : null;
   const body = { kind, detail, amount, note: $("#note-input").value.trim() || null,

@@ -111,6 +111,7 @@ function routinesKeyboard(): Keyboard {
   return [
     ...Object.entries(ROUTINES).map(([k, r]) => [{ text: r.label, callback_data: `rt:${k}` }]),
     [{ text: "💊 Tratamiento (antibiótico, etc.)", callback_data: "rt:course" }],
+    [{ text: "✍️ Crear mi propia rutina", callback_data: "rt:custom" }],
     [{ text: "✖️ Cerrar", callback_data: "cancel" }],
   ];
 }
@@ -160,11 +161,12 @@ ${ai ? `<i>«le di 5 ml de fórmula hace 20 minutos»</i>
 <i>«el control con la pediatra es el 2 de diciembre a las 10:30»</i>
 <i>«amoxicilina 2.5 ml cada 8 horas por 7 días desde las 8»</i>
 <i>«anota: preguntarle a la pediatra por el ombligo»</i>
-<i>«hizo 5 minutos de tummy time»</i>
+<i>«le hice masajes 10 minutos»</i> · <i>«sacarme leche cada 3 horas»</i>
 <i>«¿cuánto ha comido hoy?»</i> · <i>«¿hace cuánto no hace popó?»</i>` : `<i>popó</i> · <i>pipí</i> · <i>tetero 5</i> · <i>pecho izq 10</i> · <i>se durmió</i> · <i>se despertó</i> · <i>estado</i>`}
 
 Después de cada registro tienes <b>↩️ Deshacer</b> y <b>🕐 Fue hace…</b> por si te equivocas o lo anotas tarde.
-En <b>➕ Más</b>: 📝 Notas, 🗓️ Rutinas (vitamina D, tummy time, baño, tratamientos), controles y más.
+En <b>➕ Más</b>: 📝 Notas, 🗓️ Rutinas (listas o ✍️ las tuyas), controles y más.
+Cualquier recordatorio: al tocar <b>✅ Hecho</b> queda registrado en el historial.
 
 ⏰ Recordatorios: aviso 1 h y 10 min antes. 🩺 Controles: 24 h, 12 h y 2 h antes.`;
 }
@@ -471,6 +473,12 @@ export async function handleCommand(app: App, cg: Caregiver, chatId: string, cmd
   return ["No conozco ese comando. Toca ❓ Ayuda en ➕ Más.", MAIN_KB];
 }
 
+/** "💊 Darle la vitamina D" -> "Darle la vitamina D" (para el historial). */
+export function cleanLabel(text: string): string {
+  const t = text.replace(/^[^\p{L}\p{N}]+/u, "").trim();
+  return (t.charAt(0).toUpperCase() + t.slice(1)).slice(0, 80) || "Actividad";
+}
+
 async function noteReply(app: App, cg: Caregiver, text: string): Promise<Reply> {
   const n = await app.addNote(text, cg.name);
   return [`📝 Anotado: <i>${esc(n.text)}</i>`, [[{ text: "📝 Ver notas", callback_data: "m:notes" }, { text: "↩️ Borrar", callback_data: `ndel:${n.id}` }]]];
@@ -565,6 +573,11 @@ async function createAppointmentFromText(app: App, cg: Caregiver, chatId: string
   }
   return ["❌ No entendí la fecha. " + APPT_PROMPT.slice(2), null];
 }
+
+const CUSTOM_PROMPT = "✍️ Escribe tu rutina: <b>qué</b> y <b>cada cuánto</b>.\n"
+  + "Ej: <i>masajes con aceite todos los días a las 7 pm</i> · <i>sacarme leche cada 3 horas</i> · "
+  + "<i>baño de sol a las 9 am todos los días</i> · <i>cortarle las uñas cada semana</i>\n"
+  + "Cuando llegue el aviso tocas ✅ Hecho y queda registrado.";
 
 const COURSE_PROMPT = "💊 Cuéntame el tratamiento: medicina, dosis, cada cuántas horas, por cuántos días y desde qué hora.\n"
   + "Ej: <i>amoxicilina 2.5 ml cada 8 horas por 7 días desde las 8 am</i>";
@@ -730,6 +743,14 @@ async function runActions(app: App, cg: Caregiver, chatId: string, actions: Acti
           lines.push(savedLine(app, e)); ids.push(e.id);
           break;
         }
+        case "activity": {
+          const name = String(x.name ?? "").trim();
+          if (!name) { warn = "¿Qué actividad fue?"; break; }
+          const amount = typeof x.amount === "number" && x.amount > 0 && x.amount < 600 ? x.amount : null;
+          const e = await save(app, cg, chatId, "activity", { detail: cleanLabel(name), amount, start: at });
+          lines.push(savedLine(app, e)); ids.push(e.id);
+          break;
+        }
         case "medication": {
           extra.push(await courseFromAction(app, cg, x));
           break;
@@ -875,6 +896,7 @@ async function handleCallback(app: App, cg: Caregiver, chatId: string, data: str
       if (act.startsWith("medicine:")) logged = savedLine(app, await save(app, cg, chatId, "medicine", { detail: act.slice(9, 89) }));
       else if (act === "tummy") logged = savedLine(app, await save(app, cg, chatId, "tummy", {}));
       else if (act === "bath") logged = savedLine(app, await save(app, cg, chatId, "bath", {}));
+      else logged = savedLine(app, await save(app, cg, chatId, "activity", { detail: cleanLabel(r.text) }));
       return void (await edit(`✅ <b>Hecho</b> por ${esc(cg.name)} · ${app.fmtTime(app.now())}\n${esc(r.text)}${logged ? "\n" + logged : ""}`));
     }
     case "rsnz": {
@@ -900,6 +922,10 @@ async function handleCallback(app: App, cg: Caregiver, chatId: string, data: str
       if (p[1] === "course") {
         await setState(app, chatId, "course");
         return void (await edit(COURSE_PROMPT));
+      }
+      if (p[1] === "custom") {
+        await setState(app, chatId, "rem");
+        return void (await edit(CUSTOM_PROMPT));
       }
       const r = ROUTINES[p[1]];
       if (!r) return;

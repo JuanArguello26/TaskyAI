@@ -6,7 +6,7 @@ import { tgSend } from "./tg";
 import { DEFAULT_OPTS, emailHtml, htmlToText, postEmail, type EmailCategory, type EmailOpts } from "./email";
 import type { Keyboard } from "./tg";
 
-export const KINDS = ["feed", "sleep", "diaper", "bath", "medicine", "temp", "weight", "note", "tummy"] as const;
+export const KINDS = ["feed", "sleep", "diaper", "bath", "medicine", "temp", "weight", "note", "tummy", "activity"] as const;
 
 export interface Entry {
   id: number; kind: string; start_at: number; end_at: number | null; detail: string | null;
@@ -25,7 +25,7 @@ export interface Caregiver { id: number; name: string; chat_id: string; notify_o
 
 export const KIND_LABEL: Record<string, string> = {
   feed: "🍼 Comida", sleep: "😴 Sueño", diaper: "🧷 Pañal", bath: "🛁 Baño",
-  medicine: "💊 Medicina", temp: "🌡️ Temperatura", weight: "⚖️ Peso", note: "📝 Nota", tummy: "🧸 Tummy time",
+  medicine: "💊 Medicina", temp: "🌡️ Temperatura", weight: "⚖️ Peso", note: "📝 Nota", tummy: "🧸 Tummy time", activity: "✨",
 };
 export const DETAIL_LABEL: Record<string, string> = {
   pecho_izq: "pecho izquierdo", pecho_der: "pecho derecho", pecho: "pecho", pecho_ambos: "ambos pechos", biberon: "biberón", formula: "fórmula",
@@ -70,6 +70,9 @@ export class App {
   // ------------------------------------------------------------ textos
 
   describe(e: Entry): string {
+    if (e.kind === "activity") {
+      return `✨ ${e.detail ?? "Actividad"}` + (e.amount ? ` · ${num(e.amount)} min` : "") + (e.note ? ` — ${e.note}` : "");
+    }
     const parts = [KIND_LABEL[e.kind] ?? e.kind];
     if (e.kind === "feed") {
       if (e.detail) parts.push(DETAIL_LABEL[e.detail] ?? e.detail);

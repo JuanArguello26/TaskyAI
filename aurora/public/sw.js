@@ -1,6 +1,6 @@
 // Service worker mínimo: guarda la "cáscara" de la app para que abra rápido.
 // Los datos (/api) siempre van a la red.
-const CACHE = "aurora-v6";
+const CACHE = "aurora-v7";
 const SHELL = ["/", "/static/styles.css", "/static/app.js", "/static/icon-192.png"];
 self.addEventListener("install", (e) => { e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL))); self.skipWaiting(); });
 self.addEventListener("activate", (e) => {
