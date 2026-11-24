@@ -12,7 +12,8 @@ No se duerme, no necesita pings externos y los despliegues no gastan minutos de 
         ▼
 Cloudflare (tu cuenta)
   ⚙️ Worker "aurora"      → API, página web, bot, cron cada minuto
-  🗄️ D1 "aurora-db"       → registros, citas, recordatorios, cuidadores, ajustes
+  🤖 Workers AI           → entiende texto y notas de voz (10.000 neuronas/día gratis)
+  🗄️ D1 "aurora-db"       → registros, citas, recordatorios, notas, cuidadores, ajustes
 ```
 
 ---
@@ -70,43 +71,53 @@ Te da una URL tipo `https://aurora.TU-USUARIO.workers.dev`.
 
 ---
 
-## Uso en Telegram
+## Uso en Telegram (bot "Tasky")
 
-| Comando | Qué hace |
-|---|---|
-| `/menu` | Botones rápidos (biberón, pecho, dormir/despertar, pañal, baño, agenda) |
-| `/estado` | Última comida, sueño, pañal, baño y resumen del día |
-| `/comida 30` | Biberón de 30 ml (`/formula 30` para fórmula) |
-| `/pecho izq 15` | Pecho izquierdo 15 min |
-| `/dormir` · `/desperto` | Inicia / termina el sueño |
-| `/sueno 13:00 14:30` | Registra un sueño que ya pasó (o `/sueno 13:00 1h30m`) |
-| `/panal pipi` · `popo` · `ambos` | Pañal |
-| `/bano` · `/medicina Vitamina D` · `/temp 37.2` · `/peso 3.4` · `/nota …` | Otros registros |
-| `/hoy` | Todo lo registrado hoy |
-| `/recordar 30m vitamina` | Recordatorio (también `15:30 …`, `mañana 8:00 …`, `cada 3h …`) |
-| `/control 01/12 9:30 Pediatra \| Clínica X` | Control médico (avisa 24 h y 2 h antes) |
-| `/agenda` | Controles y recordatorios |
-| `/deshacer` | Borra tu último registro (última hora) |
-| `/avisos` | Activa/desactiva avisos cuando el otro registra algo |
+Cada persona abre el bot, escribe `/start` y pone el PIN familiar una sola vez. No hay usuarios
+ni contraseñas aparte: papá y mamá usan el mismo PIN.
 
-**Sin "/" también funciona:** `popó`, `pipí`, `ambos`, `tetero 30`, `30 ml`, `pecho izq 10`,
-`se durmió`, `se despertó`, `baño`, `estado`.
+**Botones fijos abajo:** 🍼 Tetero · 🤱 Pecho · 😴 Sueño · 🧷 Pañal · 📊 ¿Cómo va? · ➕ Más
+- **Tetero:** 2 a 60 ml (o escribe cualquier cantidad), materna o fórmula.
+- **Pecho:** lado y minutos.
+- **➕ Más:** Notas, Rutinas, Recordatorio, Control, Baño, Tummy, Medicina, Temp, Peso, Hoy, Agenda, Ayuda.
+- Después de cada registro: **↩️ Deshacer** o **"Fue hace 10/30/60 min"** si se te olvidó anotarlo.
 
-**¿Se te olvidó registrar?** Agrega la hora: `/comida 20 hace 20m`, `/panal popo 14:10`, `/dormir 13:45`.
+**Háblale normal, por texto o 🎙️ nota de voz** (Workers AI gratis):
+«le di 20 ml de fórmula hace un rato», «pecho izquierdo 15 min y luego hizo popó»,
+«se durmió a las 3», «tuvo hipo después de comer» (va al diario), «pesó 3200 gramos»,
+«anota comprar pañales» (nota), «amoxicilina 2,5 ml cada 8 horas por 7 días» (tratamiento),
+«recuérdame en 30 min la vitamina», «control con el pediatra el 2 de diciembre a las 9»,
+«¿cuánto ha comido hoy?». Las frases simples (`popó`, `30 ml`, `se despertó`) funcionan aun sin IA.
 
-Avisos automáticos (por Telegram):
-- Cuando uno registra algo, al otro le llega un aviso (desactivable con `/avisos`).
-- Si pasan **3 h** sin comer (`FEED_ALERT_HOURS` en `wrangler.toml`), avisa a ambos.
-- Controles: 24 h y 2 h antes. Recordatorios: a la hora indicada.
+**Comandos (opcionales):** `/menu` `/estado` `/resumen` `/hoy` `/agenda` `/notas` `/rutinas`
+`/deshacer` `/avisos` `/ayuda`.
+
+**📝 Notas:** una libreta para no olvidar cosas; se marcan como hechas o se borran (también en la web).
+
+**🔁 Rutinas:** Vitamina D, tummy time, baño, cura del ombligo, un tratamiento con horario
+(«cada 8 h por 7 días») o **cualquier texto que tú escribas**, con la frecuencia que quieras.
+Cuando suena trae **✅ Hecho** (queda registrado) y **⏰ En 10 min**.
+
+**Avisos automáticos por Telegram** (al minuto exacto):
+- Recordatorios: **1 h y 10 min antes**, y a la hora.
+- Controles médicos: **24 h, 12 h y 2 h antes**.
+- Si pasan **3 h** sin comer (`FEED_ALERT_HOURS`), avisa a ambos.
+- Cuando uno registra algo, le llega al otro (desactivable con `/avisos`).
+- **🌙 Resumen del día SOLO por Telegram** a las 9 pm por defecto (cámbialo o apágalo en
+  Ajustes → Telegram), o pídelo cuando quieras con `/resumen` o «resumen».
 
 ---
 
-## Correo (gratis, desde tu Gmail)
-En la web: **Ajustes → Correo** y sigue los 5 pasos (pegar un pequeño script en https://script.new).
-Llegan por correo los recordatorios, los controles (24 h y 2 h antes), la alerta de horas sin comer
-y un **resumen del día** a la hora que elijas. Gmail personal permite ~100 destinatarios al día.
+## Correo y Google Calendar (gratis, desde tu Gmail)
+En la web: **Ajustes → Correo** y sigue los pasos (pegar un script en https://script.new e
+implementarlo como *aplicación web*; la URL debe terminar en `/exec`).
+Llegan por correo los recordatorios, los controles y la alerta de horas sin comer.
 
-Los controles traen un botón **📅 Agregar a Google Calendar** (en Telegram y en la web).
+**Calendar automático:** con el script **versión 2** y la casilla *"Agregar controles a Google
+Calendar"* activada, cada control nuevo se crea solo en tu Google Calendar (y se borra si lo
+eliminas). Si la web muestra *"actualiza el script"*: copia el código nuevo, pégalo en el
+proyecto, ejecuta `probar`, haz **Implementar → Gestionar implementaciones → Nueva versión** y
+pulsa **Guardar** en Ajustes. Mientras tanto, cada control trae el botón **📅 Agregar a Google Calendar**.
 
 ## Seguridad
 - Usa un **PIN de 6 dígitos o más**. Tras 5 intentos fallidos (web o bot) se bloquea 15 min.
@@ -128,6 +139,6 @@ Tras cambiarlas: `npm run deploy`.
 
 ## Desarrollo
 ```bash
-npm test          # 20 pruebas: levanta el Worker real con D1 local y un Telegram falso
+npm test          # 47 pruebas: levanta el Worker real con D1 local, Telegram, IA y Gmail falsos
 npm run typecheck
 ```
