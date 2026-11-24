@@ -76,6 +76,7 @@ async function route(req: Request, env: Env, ctx: ExecutionContext): Promise<Res
 
   // ---------------- Telegram
   if (path === "/telegram/webhook" && method === "POST") {
+    if (!env.FAMILY_PIN || !env.SECRET_KEY) return json({ ok: true });
     const got = req.headers.get("X-Telegram-Bot-Api-Secret-Token") ?? "";
     if (!timingSafeEqual(got, await webhookSecret(env))) return json({ detail: "forbidden" }, 403);
     const update = await req.json().catch(() => null);
@@ -96,6 +97,10 @@ async function route(req: Request, env: Env, ctx: ExecutionContext): Promise<Res
   }
 
   if (!path.startsWith("/api/")) return env.ASSETS.fetch(req);
+
+  if (!env.FAMILY_PIN || !env.SECRET_KEY) {
+    throw new HttpError(503, "Falta configurar el PIN familiar en Cloudflare (npx wrangler secret put FAMILY_PIN)");
+  }
 
   // ---------------- login
   if (path === "/api/login" && method === "POST") {

@@ -310,6 +310,7 @@ export class App {
   // ------------------------------------------------------------ recordatorios automáticos (cron cada minuto)
 
   async tick(): Promise<string[]> {
+    if (!this.env.FAMILY_PIN || !this.env.TELEGRAM_TOKEN) return [];
     const now = this.now();
     const sent: string[] = [];
 
