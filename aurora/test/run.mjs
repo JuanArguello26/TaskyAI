@@ -12,6 +12,22 @@ const PIN = "4321";
 
 // ---------------------------------------------------------------- Telegram falso
 const SENT = [];
+// Validador del HTML que acepta Telegram (etiquetas permitidas y bien anidadas)
+const HTML_ERRORS = [];
+const TG_TAGS = new Set(["b", "strong", "i", "em", "u", "ins", "s", "strike", "del", "a", "code", "pre", "blockquote", "tg-spoiler", "span"]);
+function checkTgHtml(text) {
+  if (typeof text !== "string") return;
+  if (text.length > 4096) HTML_ERRORS.push(`Mensaje de ${text.length} caracteres`);
+  const stack = [];
+  for (const m of text.matchAll(/<(\/?)([a-z-]+)([^>]*)>|&(?!(?:amp|lt|gt|quot);)|<(?![a-z/])/g)) {
+    if (!m[2]) { HTML_ERRORS.push(`Carácter sin escapar en: ${text.slice(Math.max(0, m.index - 20), m.index + 20)}`); continue; }
+    const [, close, tag] = m;
+    if (!TG_TAGS.has(tag)) { HTML_ERRORS.push(`Etiqueta no permitida <${tag}>`); continue; }
+    if (close) { if (stack.pop() !== tag) HTML_ERRORS.push(`Cierre </${tag}> mal anidado en: ${text.slice(0, 80)}`); }
+    else stack.push(tag);
+  }
+  if (stack.length) HTML_ERRORS.push(`Sin cerrar: ${stack.join(",")} en: ${text.slice(0, 80)}`);
+}
 // Respuestas de la IA falsa: texto del usuario -> acciones
 const AI_MAP = {
   "le di 8 ml de fórmula hace un rato y después hizo popó":
@@ -23,6 +39,7 @@ const AI_MAP = {
   "el control con la pediatra es el 2 de diciembre de 2027 a las 10 y media":
     { actions: [{ type: "appointment", date: "2027-12-02", time: "10:30", title: "Control con la pediatra", place: null }] },
   "30": { actions: [] },
+  "tuvo hipo después de comer": { actions: [{ type: "diary", text: "Tuvo hipo después de comer" }] },
   "le hice masajes con aceite 10 minutos": { actions: [{ type: "activity", name: "masajes con aceite", amount: 10 }] },
   "recuérdame masajes con aceite todos los días a las 7 pm":
     { actions: [{ type: "reminder", time: "19:00", repeat_minutes: 1440, text: "masajes con aceite" }] },
@@ -66,6 +83,7 @@ const tgServer = http.createServer((req, res) => {
     const method = req.url.split("/").pop();
     const body = data ? JSON.parse(data) : {};
     if (method === "sendMessage" || method === "editMessageText") {
+      checkTgHtml(body.text);
       SENT.push({ chat: String(body.chat_id), text: body.text, kb: body.reply_markup, edit: method === "editMessageText" });
     }
     if (method === "getFile") return res.end(JSON.stringify({ ok: true, result: { file_path: "voice/1.ogg" } }));
@@ -165,7 +183,7 @@ test("login bloquea tras 5 intentos", async () => {
 test("registros y estado", async () => {
   const r = await api("/api/entries", { method: "POST", body: { kind: "feed", detail: "biberon", amount: 30 } });
   assert.equal(r.status, 200, JSON.stringify(r.data));
-  assert.equal(r.data.text, "🍼 Comida · biberón · 30 ml");
+  assert.equal(r.data.text, "🍼 Tetero · 30 ml");
   await api("/api/entries", { method: "POST", body: { kind: "diaper", detail: "popo" } });
   const st = (await api("/api/status")).data;
   assert.equal(st.last.feed.amount, 30);
@@ -231,7 +249,7 @@ test("bot exige PIN y bloquea tras 5 intentos", async () => {
 test("bot: comandos de registro", async () => {
   await tg(`/start ${PIN} Juan`, 1);
   assert.match(await tg("/comida 30", 1), /30 ml/);
-  assert.match(await tg("/pecho izq 15", 1), /pecho izquierdo · 15 min/);
+  assert.match(await tg("/pecho izq 15", 1), /Pecho izquierdo · 15 min/);
   assert.match(await tg("/panal popo", 1), /popó/);
   assert.match(await tg("/dormir", 1), /Se durmió/);
   assert.match(await tg("/dormir", 1), /Ya estaba durmiendo/);
@@ -257,7 +275,7 @@ test("bot: botones inline", async () => {
   await tg(`/start ${PIN} Juan`, 1);
   const m = await tgButton("ml:formula:2.5", 1);
   assert.ok(m.edit, "edita el mensaje en vez de mandar otro");
-  assert.match(m.text, /fórmula · 2\.5 ml/);
+  assert.match(m.text, /Fórmula · 2\.5 ml/);
   await tgButton("dp:ambos", 1);
   await tgButton("log:evil:x", 1);
   await tgButton("dp:evil", 1);
@@ -278,9 +296,9 @@ test("bot: teclado fijo al vincularse y cantidades de recién nacido", async () 
 test("bot: conversación paso a paso (tetero -> escribir 4)", async () => {
   await tg(`/start ${PIN} Juan`, 1);
   await tg("🍼 Tetero", 1);
-  assert.match(await tg("4", 1), /biberón · 4 ml/);
+  assert.match(await tg("4", 1), /Tetero · 4 ml/);
   await tgButton("br:izq", 1);
-  assert.match(await tg("12 min", 1), /pecho izquierdo · 12 min/);
+  assert.match(await tg("12 min", 1), /Pecho izquierdo · 12 min/);
   await tg("➕ Más", 1);
   await tgButton("m:weight", 1);
   assert.match(await tg("3250 gramos", 1), /3\.25 kg/);
@@ -313,7 +331,7 @@ test("bot: texto libre y sueño pasado", async () => {
   assert.match(await tg("popó", 1), /popó/);
   assert.match(await tg("Pipí y popó", 1), /pipí \+ popó/);
   assert.match(await tg("tetero 30", 1), /30 ml/);
-  assert.match(await tg("pecho izq", 1), /pecho izquierdo/);
+  assert.match(await tg("pecho izq", 1), /Pecho izquierdo/);
   assert.match(await tg("hola", 1), /Hola, Juan/);
   assert.match(await tg("Hola Tasky!", 1), /Hola, Juan/);
   assert.match(await tg("Buenos días", 1), /Hola, Juan/);
@@ -498,6 +516,84 @@ test("rutina propia (cualquier texto) y ✅ Hecho la registra en el historial", 
   assert.equal(w.text, "✨ Baño de sol · 15 min");
 });
 
+test("vocabulario: frases comunes sin IA", async () => {
+  await tg(`/start ${PIN} Juan`, 1);
+  AI_DOWN = true; // todo esto debe funcionar sin IA
+  try {
+    assert.match(await tg("se hizo popó", 1), /💩 Pañal · popó/);
+    assert.match(await tg("Pañal mojado", 1), /💧 Pañal · pipí/);
+    assert.match(await tg("le di 30 cc de fórmula", 1), /Fórmula · 30 ml/);
+    assert.match(await tg("tomó 15 ml", 1), /Tetero · 15 ml/);
+    assert.match(await tg("ya se durmió!", 1), /Se durmió/);
+    assert.match(await tg("está despierta", 1), /Se despertó/);
+    assert.match(await tg("le saqué los gases", 1), /Sacó gases/);
+    const m = (await tgAll("comió", 1)).pop();
+    assert.deepEqual(kbData(m), ["pick:pecho", "pick:tetero"]);
+    assert.match((await tgButton("pick:tetero", 1)).text, /¿Cuánto tomó/);
+    assert.match(await tg("6", 1), /Tetero · 6 ml/);
+    assert.deepEqual(kbData((await tgAll("le di teta", 1)).pop()).slice(0, 2), ["br:izq", "br:der"]);
+    assert.match(await tg("me equivoqué", 1), /Borrado/);
+    assert.match(await tg("¿qué puedes hacer?", 1), /Soy Tasky/);
+  } finally { AI_DOWN = false; }
+});
+
+test("estado bonito y resumen del día a pedido", async () => {
+  await tg(`/start ${PIN} Juan`, 1);
+  await tg("tetero 30", 1);
+  await tg("popó", 1);
+  const st = (await tgAll("¿cómo va?", 1)).pop();
+  assert.match(st.text, /<blockquote>/);
+  assert.match(st.text, /Comió/);
+  assert.deepEqual(kbData(st), ["sum", "m:today"]);
+  const r = (await tgAll("resumen", 1)).pop();
+  assert.match(r.text, /Resumen del día · Aurora/);
+  assert.match(r.text, /1 tomas/);
+  assert.match(r.text, /30 ml en tetero/);
+  assert.match(r.text, /💩 1 popó/);
+  assert.match((await tgAll("hoy", 1)).pop().text, /blockquote expandable/);
+});
+
+test("resumen automático por Telegram a la hora elegida (una vez al día)", async () => {
+  await tg(`/start ${PIN} Juan`, 1);
+  await tg(`/start ${PIN} Maria`, 2);
+  await api("/api/settings", { method: "PUT", body: { tg_summary_hour: 21 } });
+  const local = new Date(Date.now() - 5 * HOUR); // Bogotá UTC-5
+  const day = Date.UTC(local.getUTCFullYear(), local.getUTCMonth(), local.getUTCDate());
+  const at9pm = day + (21 + 5) * HOUR;
+  assert.deepEqual((await tick(at9pm - MIN)).filter((x) => x.startsWith("tg_summary")), []);
+  SENT.length = 0;
+  assert.ok((await tick(at9pm)).some((x) => x.startsWith("tg_summary")));
+  assert.deepEqual(SENT.map((m) => m.chat).sort(), ["1", "2"]);
+  assert.match(SENT[0].text, /Resumen del día/);
+  assert.ok(!EMAILS.length, "solo Telegram");
+  assert.deepEqual((await tick(at9pm + 30 * MIN)).filter((x) => x.startsWith("tg_summary")), []);
+  // cambiar hora desde el botón
+  await tgButton("sumh:22", 1);
+  assert.equal((await api("/api/status")).data.telegram.summary_hour, 22);
+  await tgButton("sumh:-1", 1);
+  assert.equal((await api("/api/status")).data.telegram.summary_hour, -1);
+});
+
+test("día con muchísimos registros: los mensajes no pasan el límite de Telegram", async () => {
+  await tg(`/start ${PIN} Juan`, 1);
+  for (let i = 0; i < 120; i++) {
+    await api("/api/entries", { method: "POST", body: { kind: "activity", detail: "Actividad con un nombre bastante largo " + i, start: iso((120 - i) * 6000) } });
+  }
+  const hoy = (await tgAll("hoy", 1)).pop().text;
+  assert.ok(hoy.length < 4096, String(hoy.length));
+  assert.match(hoy, /y más en la app web/);
+  assert.match(hoy, /largo 119/, "muestra los más recientes");
+  const res = (await tgAll("resumen", 1)).pop().text;
+  assert.ok(res.length < 4096, String(res.length));
+});
+
+test("IA: lo que le pasa a la bebé va al diario", async () => {
+  await tg(`/start ${PIN} Juan`, 1);
+  assert.match(await tg("tuvo hipo después de comer", 1), /Al diario.*hipo/s);
+  const [e] = (await api("/api/entries?kind=note")).data;
+  assert.equal(e.text, "📝 Tuvo hipo después de comer");
+});
+
 test("Google Calendar automático (script v2) y respaldo con enlace (script viejo)", async () => {
   await tg(`/start ${PIN} Juan`, 1);
   const gs = `http://127.0.0.1:${TG_PORT}/gs`;
@@ -537,7 +633,7 @@ test("el cron real de Cloudflare dispara los recordatorios", async () => {
 test("IA: varias cosas en un mensaje + deshacer todo", async () => {
   await tg(`/start ${PIN} Juan`, 1);
   const m = (await tgAll("le di 8 ml de fórmula hace un rato y después hizo popó", 1)).pop();
-  assert.match(m.text, /fórmula · 8 ml/);
+  assert.match(m.text, /Fórmula · 8 ml/);
   assert.match(m.text, /popó/);
   assert.match(kbData(m)[0], /^undo:\d+,\d+$/);
   assert.equal((await api("/api/entries")).data.length, 2);
@@ -547,7 +643,7 @@ test("IA: varias cosas en un mensaje + deshacer todo", async () => {
 
 test("IA: pecho con duración, peso en gramos y fiebre", async () => {
   await tg(`/start ${PIN} Juan`, 1);
-  assert.match(await tg("tomó teta derecha como 15 minutos", 1), /pecho derecho · 15 min/);
+  assert.match(await tg("tomó teta derecha como 15 minutos", 1), /Pecho derecho · 15 min/);
   const t = await tg("pesó 3200 gramos y tiene 38,4 de temperatura", 1);
   assert.match(t, /3\.2 kg/);
   assert.match(t, /38\.4 °C/);
@@ -646,6 +742,10 @@ test("control trae botón de Google Calendar (bot y web)", async () => {
   assert.match(a.calendar_url, /calendar\.google\.com/);
 });
 
+test("todo el HTML enviado a Telegram es válido", async () => {
+  assert.deepEqual(HTML_ERRORS.slice(0, 5), []);
+});
+
 test("webhook rechaza secreto malo", async () => {
   const r = await fetch(BASE + "/telegram/webhook", { method: "POST", headers: { "X-Telegram-Bot-Api-Secret-Token": "no" }, body: "{}" });
   assert.equal(r.status, 403);
@@ -673,6 +773,7 @@ for (const [name, fn] of tests) {
   await fetch(BASE + "/__test/reset", { method: "POST" });
   SENT.length = 0;
   TOKEN = (await api("/api/login", { method: "POST", body: { pin: PIN }, auth: false })).data?.token;
+  await api("/api/settings", { method: "PUT", body: { tg_summary_hour: -1 } });
   try {
     await fn();
     console.log(`  ✓ ${name}`);

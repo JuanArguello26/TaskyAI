@@ -138,6 +138,7 @@ function afterKeyboard(ids: number[], allowShift = true): Keyboard {
 export const COMMANDS: [string, string][] = [
   ["menu", "Mostrar los botones"],
   ["estado", "¿Cómo va? Última comida, sueño, pañal"],
+  ["resumen", "🌙 Resumen del día"],
   ["hoy", "Todo lo de hoy"],
   ["agenda", "Controles y recordatorios"],
   ["notas", "Mis notas pendientes"],
@@ -149,26 +150,31 @@ export const COMMANDS: [string, string][] = [
 
 function helpText(app: App): string {
   const ai = aiEnabled(app.env);
-  return `<b>👋 Soy Tasky, el asistente de ${esc(app.babyName)}</b>
+  return `👋 <b>Soy Tasky</b>, el asistente de ${esc(app.babyName)} 💜
 
-Usa los <b>botones de abajo</b> ⬇️ o ${ai ? "<b>escríbeme o mándame un audio</b> como le hablarías a alguien" : "escríbeme frases cortas"}:
+<b>Lo más rápido:</b> los botones de abajo ⬇️
+🍼 Tetero · 🤱 Pecho · 😴 Sueño · 🧷 Pañal · 📊 ¿Cómo va? · ➕ Más
 
-${ai ? `<i>«le di 5 ml de fórmula hace 20 minutos»</i>
-<i>«tomó pecho izquierdo 15 minutos y luego hizo popó»</i>
-<i>«se durmió a las 3 y se despertó hace un rato»</i>
-<i>«pesó 3200 gramos»</i> · <i>«tiene 37,5 de temperatura»</i>
-<i>«recuérdame la vitamina D todos los días a las 8»</i>
-<i>«el control con la pediatra es el 2 de diciembre a las 10:30»</i>
-<i>«amoxicilina 2.5 ml cada 8 horas por 7 días desde las 8»</i>
-<i>«anota: preguntarle a la pediatra por el ombligo»</i>
-<i>«le hice masajes 10 minutos»</i> · <i>«sacarme leche cada 3 horas»</i>
-<i>«¿cuánto ha comido hoy?»</i> · <i>«¿hace cuánto no hace popó?»</i>` : `<i>popó</i> · <i>pipí</i> · <i>tetero 5</i> · <i>pecho izq 10</i> · <i>se durmió</i> · <i>se despertó</i> · <i>estado</i>`}
+${ai ? `<b>O háblame normal</b> (texto o 🎙️ audio):
+<blockquote>«le di 20 ml de fórmula hace un rato»
+«tomó pecho izquierdo 15 minutos y luego hizo popó»
+«se durmió a las 3 y se despertó hace un rato»
+«le hice masajes 10 minutos»
+«tuvo hipo después de comer» <i>(va al diario)</i>
+«pesó 3200 gramos» · «tiene 37,5»</blockquote>
 
-Después de cada registro tienes <b>↩️ Deshacer</b> y <b>🕐 Fue hace…</b> por si te equivocas o lo anotas tarde.
-En <b>➕ Más</b>: 📝 Notas, 🗓️ Rutinas (listas o ✍️ las tuyas), controles y más.
-Cualquier recordatorio: al tocar <b>✅ Hecho</b> queda registrado en el historial.
+<b>Agenda y recordatorios</b>
+<blockquote>«control con la pediatra el 2 de diciembre a las 10:30»
+«recuérdame la vitamina D todos los días a las 8»
+«amoxicilina 2.5 ml cada 8 horas por 7 días»
+«anota: comprar pañales talla 0»</blockquote>
 
-⏰ Recordatorios: aviso 1 h y 10 min antes. 🩺 Controles: 24 h, 12 h y 2 h antes.`;
+<b>Pregúntame</b>
+<blockquote>«resumen» · «¿cuánto ha comido hoy?» · «¿hace cuánto no hace popó?»</blockquote>` : `<b>Frases cortas:</b> <i>popó · pipí · tetero 5 · pecho izq 10 · se durmió · se despertó · resumen</i>`}
+
+↩️ Cada registro trae <b>Deshacer</b> y <b>🕐 Fue hace…</b>
+⏰ Recordatorios: aviso 1 h y 10 min antes · 🩺 Controles: 24 h, 12 h y 2 h antes
+🌙 Cada noche a las 9 p. m. te mando el <b>resumen del día</b>`;
 }
 
 // ------------------------------------------------------------------ helpers
@@ -261,7 +267,7 @@ async function save(app: App, cg: Caregiver, chatId: string, kind: string, o: Pa
 }
 
 function savedLine(app: App, e: Entry): string {
-  return `✅ ${esc(app.describe(e))} · ${app.fmtTime(e.start_at)}`;
+  return `✅ <b>${esc(app.describe(e))}</b>  <i>${app.fmtTime(e.start_at)}</i>`;
 }
 
 async function logReply(app: App, cg: Caregiver, chatId: string, kind: string, o: Parameters<App["createEntry"]>[2] = {}): Promise<Reply> {
@@ -318,22 +324,38 @@ export function norm(text: string): string {
 }
 
 const TIME_SUFFIX = /^(.*?)((?:\s+hace\s+\S+)|(?:\s+(?:a las\s+)?\d{1,2}:\d{2}))?$/;
-const PLAIN: Record<string, [string, string]> = {
-  "pipi": ["panal", "pipi"], "pis": ["panal", "pipi"], "orino": ["panal", "pipi"],
-  "popo": ["panal", "popo"], "caca": ["panal", "popo"], "popis": ["panal", "popo"],
-  "ambos": ["panal", "ambos"], "pipi y popo": ["panal", "ambos"], "popo y pipi": ["panal", "ambos"],
-  "durmio": ["dormir", ""], "se durmio": ["dormir", ""], "dormida": ["dormir", ""], "a dormir": ["dormir", ""],
-  "ya se durmio": ["dormir", ""], "se quedo dormida": ["dormir", ""],
-  "desperto": ["desperto", ""], "se desperto": ["desperto", ""], "desperte": ["desperto", ""], "ya se desperto": ["desperto", ""],
-  "bano": ["bano", ""], "se bano": ["bano", ""], "banada": ["bano", ""],
-  "estado": ["estado", ""], "resumen": ["estado", ""], "como va": ["estado", ""], "como esta": ["estado", ""],
-  "hoy": ["hoy", ""], "agenda": ["agenda", ""], "menu": ["menu", ""], "ayuda": ["ayuda", ""],
-  "deshacer": ["deshacer", ""], "notas": ["notas", ""], "mis notas": ["notas", ""], "ver notas": ["notas", ""],
-  "rutinas": ["rutinas", ""], "tummy time": ["tummy", ""], "tummy": ["tummy", ""], "barriguita": ["tummy", ""],
-  "hola": ["hola", ""], "ola": ["hola", ""], "hola tasky": ["hola", ""], "hola bot": ["hola", ""], "buenas": ["hola", ""], "buenos dias": ["hola", ""], "buen dia": ["hola", ""], "buenas tardes": ["hola", ""], "buenas noches": ["hola", ""], "hey": ["hola", ""], "holi": ["hola", ""], "que mas": ["hola", ""], "quiubo": ["hola", ""], "hola hola": ["hola", ""],
-  "gracias": ["gracias", ""], "muchas gracias": ["gracias", ""], "gracias tasky": ["gracias", ""], "mil gracias": ["gracias", ""], "ok": ["gracias", ""], "listo": ["gracias", ""], "vale": ["gracias", ""], "dale": ["gracias", ""],
-};
-const ML_RE = /^(?:(?:tomo|comio|le di)\s+)?(?:biberon|tetero|formula|leche|toma)?\s*(\d+(?:[.,]\d+)?)\s*(?:ml)?$/;
+const PLAIN: Record<string, [string, string]> = {};
+const say = (cmd: string, args: string, ...phrases: string[]) => { for (const p of phrases) PLAIN[p] = [cmd, args]; };
+// Pañales
+say("panal", "pipi", "pipi", "pis", "orino", "se orino", "hizo pipi", "se hizo pipi", "panal mojado", "pañal mojado", "mojo el panal", "esta mojada", "mojada");
+say("panal", "popo", "popo", "caca", "popis", "hizo popo", "se hizo popo", "hizo caca", "panal sucio", "pañal sucio", "se ensucio", "popo verde", "popo amarilla");
+say("panal", "ambos", "ambos", "las dos", "ambas", "pipi y popo", "popo y pipi", "pipi y caca", "de todo");
+say("panal", "", "panal", "pañal", "cambio de panal", "cambie el panal", "le cambie el panal", "cambio de pañal", "le cambie el pañal", "cambiamos panal");
+// Sueño
+say("dormir", "", "durmio", "se durmio", "ya se durmio", "dormida", "esta dormida", "se quedo dormida", "a dormir", "a mimir", "se fue a dormir", "durmiendo", "ya duerme", "cayo dormida");
+say("desperto", "", "desperto", "se desperto", "ya se desperto", "desperte", "esta despierta", "despierta", "se levanto", "abrio los ojos", "ya desperto");
+// Comida
+say("comio", "", "comio", "ya comio", "le di de comer", "comida", "toma", "hora de comer");
+say("pecho", "", "pecho", "teta", "seno", "tomo pecho", "le di pecho", "le di teta", "mamo", "lacto", "lactancia", "dio pecho");
+say("comida", "", "tetero", "biberon", "tomo tetero", "le di tetero", "tetero listo");
+// Otros
+say("bano", "", "bano", "se bano", "banada", "la bane", "le di un bano", "bano listo", "ya se bano");
+say("tummy", "", "tummy time", "tummy", "barriguita", "boca abajo");
+say("gases", "", "saco gases", "le saque los gases", "saque gases", "eructo", "ya eructo", "solto gases", "gases");
+// Consultas
+say("estado", "", "estado", "como va", "como esta", "como vamos", "que tal va", "info", "status", "como sigue");
+say("resumen", "", "resumen", "resumen del dia", "resumen de hoy", "como estuvo el dia", "como le fue hoy", "como fue el dia", "balance del dia");
+say("hoy", "", "hoy", "que ha hecho hoy", "registros de hoy", "historial", "lo de hoy");
+say("agenda", "", "agenda", "citas", "controles", "proximos controles", "recordatorios", "mis recordatorios", "pendientes");
+say("notas", "", "notas", "mis notas", "ver notas", "lista");
+say("rutinas", "", "rutinas", "mis rutinas", "rutina");
+say("menu", "", "menu", "botones", "opciones");
+say("ayuda", "", "ayuda", "que puedes hacer", "como funciona", "comandos", "help", "instrucciones");
+say("deshacer", "", "deshacer", "borra eso", "borra lo ultimo", "me equivoque", "error", "eso no", "cancela eso");
+// Saludos
+say("hola", "", "hola", "ola", "hola tasky", "hola bot", "buenas", "buenos dias", "buen dia", "buenas tardes", "buenas noches", "hey", "holi", "que mas", "quiubo", "hola hola");
+say("gracias", "", "gracias", "muchas gracias", "gracias tasky", "mil gracias", "ok", "listo", "vale", "dale", "perfecto", "super");
+const ML_RE = /^(?:(?:tomo|comio|le di|se tomo)\s+)?(?:(?:un |el )?(?:biberon|tetero|formula|leche|toma)(?: de)?)?\s*(\d+(?:[.,]\d+)?)\s*(?:ml|cc|mililitros|onzas?)?(?: de (?:leche|formula|tetero))?$/;
 const ML_WORD = /^(?:(?:tomo|comio)\s+)?(biberon|tetero|formula|leche|toma)$/;
 const BREAST_RE = /^(?:dio\s+|tomo\s+)?(?:pecho|teta|seno)\s+(izq\S*|der\S*)(?:\s+(\d+)\s*(?:m|min|minutos)?)?$/;
 
@@ -352,7 +374,8 @@ export function plainToCommand(text: string): [string, string] | null {
     return [cmd, (args + suffix).trim()];
   }
   const mm = base.match(ML_RE);
-  if (mm && (base.includes("ml") || !/^[\d.,]+$/.test(base))) {
+  if (mm && !/^[\d.,]+$/.test(base)) {
+    if (/onza/.test(base)) return null; // onzas: que lo resuelva la IA (1 oz ≈ 30 ml)
     return [base.includes("formula") ? "formula" : "comida", (mm[1] + suffix).trim()];
   }
   if (ML_WORD.test(base)) return ["comida", suffix.trim()];
@@ -375,8 +398,14 @@ export async function handleCommand(app: App, cg: Caregiver, chatId: string, cmd
       return [`¡Hola, ${esc(cg.name)}! 👋 ¿Qué registramos? Usa los botones o cuéntame qué pasó.`, MAIN_KB];
     case "gracias":
       return ["¡Con gusto! 💜", null];
-    case "estado": case "resumen": case "status":
-      return [await app.statusText(), null];
+    case "estado": case "status":
+      return [await app.statusText(), [[{ text: "🌙 Resumen del día", callback_data: "sum" }, { text: "📋 Todo lo de hoy", callback_data: "m:today" }]]];
+    case "resumen":
+      return [await app.dailySummaryText(), summaryKeyboard()];
+    case "comio":
+      return ["🍽️ ¿Qué comió?", [[{ text: "🤱 Pecho", callback_data: "pick:pecho" }, { text: "🍼 Tetero", callback_data: "pick:tetero" }]]];
+    case "gases":
+      return logReply(app, cg, chatId, "activity", { detail: "Sacó gases", start });
     case "hoy":
       return [await app.todayText(), null];
     case "ayuda": case "help":
@@ -477,6 +506,10 @@ export async function handleCommand(app: App, cg: Caregiver, chatId: string, cmd
 export function cleanLabel(text: string): string {
   const t = text.replace(/^[^\p{L}\p{N}]+/u, "").trim();
   return (t.charAt(0).toUpperCase() + t.slice(1)).slice(0, 80) || "Actividad";
+}
+
+function summaryKeyboard(): Keyboard {
+  return [[{ text: "📋 Ver todo lo de hoy", callback_data: "m:today" }, { text: "🕘 Hora del resumen", callback_data: "sumh" }]];
 }
 
 async function noteReply(app: App, cg: Caregiver, text: string): Promise<Reply> {
@@ -743,6 +776,12 @@ async function runActions(app: App, cg: Caregiver, chatId: string, actions: Acti
           lines.push(savedLine(app, e)); ids.push(e.id);
           break;
         }
+        case "diary": {
+          const text = String(x.text ?? original).trim().slice(0, 2000);
+          const e = await save(app, cg, chatId, "note", { note: text, start: at });
+          lines.push(`📖 <b>Al diario:</b> <i>${esc(text)}</i>`); ids.push(e.id);
+          break;
+        }
         case "activity": {
           const name = String(x.name ?? "").trim();
           if (!name) { warn = "¿Qué actividad fue?"; break; }
@@ -883,6 +922,24 @@ async function handleCallback(app: App, cg: Caregiver, chatId: string, data: str
     case "rmappt": {
       const a = await app.deleteAppointment(Number(p[1]));
       return void (await edit(a?.gcal_event_id ? "🗑️ Control borrado (también de Google Calendar)." : "🗑️ Control borrado."));
+    }
+    case "sum":
+      return void (await tgSend(app.env, chatId, await app.dailySummaryText(), summaryKeyboard()));
+    case "pick":
+      if (p[1] === "pecho") return void (await edit("🤱 ¿Qué lado?", breastSideKeyboard()));
+      await setState(app, chatId, "ml", { detail: "biberon" });
+      return void (await edit("🍼 ¿Cuánto tomó? Toca una cantidad o <b>escribe el número</b> (ej: 4).", mlKeyboard()));
+    case "sumh": {
+      if (p[1] !== undefined) {
+        const h = Number(p[1]);
+        await app.kvSet("tg_summary_hour", String(h >= 0 && h <= 23 ? h : -1));
+        return void (await edit(h >= 0 ? `🌙 Listo: les mando el resumen todos los días a las <b>${h > 12 ? h - 12 : h}:00 ${h < 12 ? "a. m." : "p. m."}</b>.`
+          : "🔕 Resumen diario apagado. Pídelo cuando quieras escribiendo <i>«resumen»</i>."));
+      }
+      const cur = Number((await app.kvGet("tg_summary_hour")) ?? 21);
+      const opt = (h: number) => ({ text: `${cur === h ? "✅ " : ""}${h - 12}:00 p. m.`, callback_data: `sumh:${h}` });
+      return void (await tgSend(app.env, chatId, "🕘 ¿A qué hora quieres el resumen diario por Telegram?",
+        [[opt(20), opt(21)], [opt(22), opt(23)], [{ text: `${cur < 0 ? "✅ " : ""}🔕 Apagar`, callback_data: "sumh:-1" }]]));
     }
     case "rdone": {
       const r = await app.db.prepare("SELECT * FROM reminders WHERE id = ?").bind(Number(p[1])).first<any>();

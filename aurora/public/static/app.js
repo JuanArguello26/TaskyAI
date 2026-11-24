@@ -119,8 +119,8 @@ async function loadStatus() {
 }
 
 const SUBS = {
-  feed: (e) => e.text.replace(/^🍼 Comida · ?/, ""),
-  diaper: (e) => e.text.replace(/^🧷 Pañal · ?/, ""),
+  feed: (e) => e.text.replace(/^\S+\s/, ""),
+  diaper: (e) => e.text.replace(/^\S+ Pañal · /, ""),
   poop: () => "",
   bath: () => "",
 };
@@ -461,7 +461,16 @@ function renderSettings() {
     : `${tg.connected ? `<p>✅ Bot conectado.</p>` : `<p>⚠️ El bot aún no está conectado.</p>`}
        <button class="btn ${tg.connected ? "ghost" : "primary"} block" id="tg-connect">${tg.connected ? "Reconectar bot" : "🔗 Conectar bot de Telegram"}</button>
        <p>Luego abre el bot en Telegram y escribe:</p><p><code>/start PIN TuNombre</code></p>
-       <p class="muted small">Vinculados: ${tg.caregivers.length ? tg.caregivers.map(esc).join(", ") : "nadie todavía"}</p>`;
+       <p class="muted small">Vinculados: ${tg.caregivers.length ? tg.caregivers.map(esc).join(", ") : "nadie todavía"}</p>
+       <label>🌙 Resumen del día por Telegram
+         <select id="tg-summary">${[[-1, "Apagado"], [20, "8:00 p. m."], [21, "9:00 p. m."], [22, "10:00 p. m."], [23, "11:00 p. m."]]
+           .map(([v, l]) => `<option value="${v}" ${tg.summary_hour === v ? "selected" : ""}>${l}</option>`).join("")}</select>
+       </label>`;
+  const sumSel = $("#tg-summary");
+  if (sumSel) sumSel.addEventListener("change", async () => {
+    try { await api("/api/settings", { method: "PUT", body: { tg_summary_hour: Number(sumSel.value) } }); toast("🌙 Guardado"); await loadStatus(); }
+    catch (e) { toast(e.message); }
+  });
   loadEmail().catch((e) => toast(e.message));
   const btn = $("#tg-connect");
   if (btn) btn.addEventListener("click", async () => {

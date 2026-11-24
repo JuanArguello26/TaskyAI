@@ -70,30 +70,34 @@ export class App {
   // ------------------------------------------------------------ textos
 
   describe(e: Entry): string {
-    if (e.kind === "activity") {
-      return `✨ ${e.detail ?? "Actividad"}` + (e.amount ? ` · ${num(e.amount)} min` : "") + (e.note ? ` — ${e.note}` : "");
+    const note = e.note ? ` — ${e.note}` : "";
+    const min = e.amount ? ` · ${num(e.amount)} min` : "";
+    switch (e.kind) {
+      case "feed": {
+        const d = e.detail ?? "biberon";
+        if (d.startsWith("pecho")) {
+          const side = { pecho_izq: "Pecho izquierdo", pecho_der: "Pecho derecho", pecho_ambos: "Ambos pechos" }[d] ?? "Pecho";
+          return `🤱 ${side}${min}${note}`;
+        }
+        return `🍼 ${d === "formula" ? "Fórmula" : "Tetero"}${e.amount ? ` · ${num(e.amount)} ml` : ""}${note}`;
+      }
+      case "diaper": {
+        const icon = { pipi: "💧", popo: "💩", ambos: "💧💩" }[e.detail ?? ""] ?? "🧷";
+        return `${icon} Pañal · ${DETAIL_LABEL[e.detail ?? ""] ?? e.detail ?? ""}${note}`;
+      }
+      case "sleep": {
+        const end = e.end_at ?? this.now();
+        return `😴 Sueño · ${T.fmtDur((end - e.start_at) / 1000)}${e.end_at ? "" : " (durmiendo)"}${note}`;
+      }
+      case "bath": return `🛁 Baño${note}`;
+      case "medicine": return `💊 ${e.detail ?? "Medicina"}${note}`;
+      case "temp": return `🌡️ ${e.amount ? num(e.amount) + " °C" : "Temperatura"}${note}`;
+      case "weight": return `⚖️ ${e.amount ? num(e.amount) + " kg" : "Peso"}${note}`;
+      case "tummy": return `🧸 Tummy time${min}${note}`;
+      case "activity": return `✨ ${e.detail ?? "Actividad"}${min}${note}`;
+      case "note": return `📝 ${e.note ?? "Nota"}`;
     }
-    const parts = [KIND_LABEL[e.kind] ?? e.kind];
-    if (e.kind === "feed") {
-      if (e.detail) parts.push(DETAIL_LABEL[e.detail] ?? e.detail);
-      if (e.amount) parts.push(`${num(e.amount)} ${(e.detail ?? "").startsWith("pecho") ? "min" : "ml"}`);
-    } else if (e.kind === "sleep") {
-      const end = e.end_at ?? this.now();
-      parts.push(T.fmtDur((end - e.start_at) / 1000) + (e.end_at ? "" : " (durmiendo)"));
-    } else if (e.kind === "diaper") {
-      parts.push(DETAIL_LABEL[e.detail ?? ""] ?? e.detail ?? "");
-    } else if (e.kind === "temp" && e.amount) {
-      parts.push(`${num(e.amount)} °C`);
-    } else if (e.kind === "weight" && e.amount) {
-      parts.push(`${num(e.amount)} kg`);
-    } else if (e.kind === "tummy" && e.amount) {
-      parts.push(`${num(e.amount)} min`);
-    } else if (e.kind === "medicine" && e.detail) {
-      parts.push(e.detail);
-    }
-    let text = parts.filter(Boolean).join(" · ");
-    if (e.note) text += ` — ${e.note}`;
-    return text;
+    return `${KIND_LABEL[e.kind] ?? e.kind}${note}`;
   }
 
   entryOut(e: Entry) {
@@ -215,7 +219,14 @@ export class App {
       pee: diapers.filter((e) => e.detail === "pipi" || e.detail === "ambos").length,
       poop: diapers.filter((e) => e.detail === "popo" || e.detail === "ambos").length,
       sleep_seconds: Math.floor(sleepMs / 1000),
+      longest_sleep_seconds: Math.floor(Math.max(0, ...rows.filter((e) => e.kind === "sleep")
+        .map((e) => Math.min(e.end_at ?? now, end) - Math.max(e.start_at, start))) / 1000),
+      breast_minutes: feeds.filter((e) => (e.detail ?? "").startsWith("pecho")).reduce((a, e) => a + (e.amount ?? 0), 0),
       baths: inDay.filter((e) => e.kind === "bath").length,
+      meds: inDay.filter((e) => e.kind === "medicine").map((e) => e.detail ?? "Medicina").reverse(),
+      activities: inDay.filter((e) => e.kind === "activity" || e.kind === "tummy").map((e) => this.describe(e)).reverse(),
+      max_temp: Math.max(0, ...inDay.filter((e) => e.kind === "temp").map((e) => e.amount ?? 0)) || null,
+      weight: inDay.find((e) => e.kind === "weight")?.amount ?? null,
       entries: inDay,
     };
   }
@@ -249,70 +260,125 @@ export class App {
 
   async statusText(): Promise<string> {
     const age = await this.ageText();
-    const lines = [`<b>👶 ${escapeHtml(this.babyName)}</b>` + (age ? ` · ${age}` : "")];
+    const out = [`👶 <b>${escapeHtml(this.babyName)}</b>${age ? ` · <i>${age}</i>` : ""}`];
+    const q: string[] = [];
     const feed = await this.lastOf("feed");
-    lines.push(feed
-      ? `🍼 Última comida: ${escapeHtml(this.describe(feed))}, ${this.ago(feed.start_at)} (${this.fmtTime(feed.start_at)})`
-      : "🍼 Sin comidas registradas");
+    q.push(feed
+      ? `🍼 <b>Comió</b> ${this.ago(feed.start_at)}\n<i>${escapeHtml(this.describe(feed).replace(/^\S+ /, ""))} · ${this.fmtTime(feed.start_at)}</i>`
+      : "🍼 <i>Sin comidas registradas</i>");
     const sl = await this.activeSleep();
     if (sl) {
-      lines.push(`😴 Durmiendo desde ${this.fmtTime(sl.start_at)} (${T.fmtDur((this.now() - sl.start_at) / 1000)})`);
+      q.push(`😴 <b>Durmiendo</b> hace ${T.fmtDur((this.now() - sl.start_at) / 1000)}\n<i>desde las ${this.fmtTime(sl.start_at)}</i>`);
     } else {
       const last = await this.lastOf("sleep");
-      lines.push(last?.end_at
-        ? `😊 Despierta desde ${this.fmtTime(last.end_at)} (${this.ago(last.end_at)}). Último sueño: ${T.fmtDur((last.end_at - last.start_at) / 1000)}`
-        : "😴 Sin sueños registrados");
+      q.push(last?.end_at
+        ? `😊 <b>Despierta</b> ${this.ago(last.end_at)}\n<i>durmió ${T.fmtDur((last.end_at - last.start_at) / 1000)}</i>`
+        : "😴 <i>Sin sueños registrados</i>");
     }
     const dp = await this.lastOf("diaper");
-    lines.push(dp
-      ? `🧷 Último pañal: ${escapeHtml(DETAIL_LABEL[dp.detail ?? ""] ?? dp.detail ?? "")}, ${this.ago(dp.start_at)}`
-      : "🧷 Sin pañales registrados");
     const poop = await this.lastOf("diaper", ["popo", "ambos"]);
-    if (poop && poop.id !== dp?.id) lines.push(`💩 Última popó: ${this.ago(poop.start_at)}`);
     const bath = await this.lastOf("bath");
-    if (bath) lines.push(`🛁 Último baño: ${this.ago(bath.start_at)}`);
+    const small = [
+      dp ? `🧷 <b>Pañal</b> ${this.ago(dp.start_at)} · <i>${escapeHtml(DETAIL_LABEL[dp.detail ?? ""] ?? "")}</i>` : "🧷 <i>Sin pañales registrados</i>",
+      poop ? `💩 <b>Popó</b> ${this.ago(poop.start_at)}` : "",
+      bath ? `🛁 <b>Baño</b> ${this.ago(bath.start_at)}` : "",
+    ].filter(Boolean).join("\n");
+    q.push(small);
+    out.push(`<blockquote>${q.join("\n\n")}</blockquote>`);
     const s = await this.daySummary();
-    lines.push("");
-    lines.push(`<b>Hoy:</b> ${s.feeds} tomas` + (s.feed_ml ? ` (${num(s.feed_ml)} ml)` : "")
-      + ` · ${s.diapers} pañales (${s.pee} pipí, ${s.poop} popó)`
-      + ` · sueño ${s.sleep_seconds >= 60 ? T.fmtDur(s.sleep_seconds) : "0 min"}`);
+    out.push(`📊 <b>Hoy</b>  🍼 ${s.feeds}${s.feed_ml ? ` (${num(s.feed_ml)} ml)` : ""}  ·  🧷 ${s.diapers}  ·  😴 ${s.sleep_seconds >= 60 ? T.fmtDur(s.sleep_seconds) : "0 min"}`);
     const [a] = await this.upcomingAppointments(1);
-    if (a) lines.push(`📅 Próximo control: ${escapeHtml(a.title)} — ${this.fmtTime(a.at)}`);
-    return lines.join("\n");
+    if (a) out.push(`🩺 <b>Próximo control:</b> ${escapeHtml(a.title)} · ${this.fmtTime(a.at)}`);
+    return out.join("\n");
   }
 
   async todayText(): Promise<string> {
     const s = await this.daySummary();
-    if (!s.entries.length) return "Hoy no hay registros todavía.";
-    const lines = ["<b>📋 Registros de hoy</b>"];
-    for (const e of [...s.entries].reverse().slice(0, 60)) {
-      const who = e.author ? ` <i>(${escapeHtml(e.author)})</i>` : "";
-      lines.push(`${T.hhmm(T.toNaive(e.start_at, this.tz))} ${escapeHtml(this.describe(e))}${who}`);
+    if (!s.entries.length) return "📋 <b>Hoy</b>\n<i>Aún no hay registros. ¡Empieza con los botones de abajo!</i>";
+    // Telegram admite 4096 caracteres: mostramos los más recientes que quepan.
+    const rows: string[] = [];
+    let size = 0;
+    for (const e of s.entries) {
+      const who = e.author ? ` <i>· ${escapeHtml(e.author)}</i>` : "";
+      const row = `<code>${T.hhmm(T.toNaive(e.start_at, this.tz))}</code>  ${escapeHtml(this.describe(e).slice(0, 120))}${who}`;
+      if (size + row.length > 3300) { rows.push("<i>… y más en la app web</i>"); break; }
+      rows.unshift(row);
+      size += row.length + 1;
     }
-    return lines.join("\n");
+    if (rows[rows.length - 1]?.startsWith("<i>…")) rows.unshift(rows.pop()!);
+    return `📋 <b>Hoy</b> · ${s.entries.length} registros\n`
+      + `🍼 ${s.feeds} tomas${s.feed_ml ? ` (${num(s.feed_ml)} ml)` : ""} · 🧷 ${s.diapers} pañales · 😴 ${T.fmtDur(Math.max(60, s.sleep_seconds))}\n`
+      + `<blockquote expandable>${rows.join("\n")}</blockquote>`;
   }
 
   repeatLabel(min: number): string {
     if (min === 1440) return "todos los días";
+    if (min === 2880) return "cada 2 días";
     if (min === 10080) return "cada semana";
     return "cada " + T.fmtDur(min * 60);
   }
 
   async agendaText(): Promise<string> {
-    const lines = ["<b>📅 Próximos controles</b>"];
+    const out = ["📅 <b>Agenda</b>"];
     const appts = await this.upcomingAppointments(10);
-    if (appts.length) {
-      for (const a of appts) lines.push(`• ${this.fmtTime(a.at)} — ${escapeHtml(a.title)}` + (a.place ? ` (${escapeHtml(a.place)})` : ""));
-    } else lines.push("Ninguno. Agrega con /control");
-    lines.push("\n<b>⏰ Recordatorios</b>");
-    const rems = await this.activeReminders();
-    if (rems.length) {
-      for (const r of rems) {
-        lines.push(`• #${r.id} ${this.fmtTime(r.due_at)} — ${escapeHtml(r.text)}`
-          + (r.repeat_minutes ? ` (${this.repeatLabel(r.repeat_minutes)})` : ""));
-      }
-    } else lines.push("Ninguno. Agrega con /recordar");
-    return lines.join("\n");
+    out.push("\n🩺 <b>Controles</b>");
+    out.push(appts.length
+      ? `<blockquote>${appts.map((a) => `<b>${this.fmtTime(a.at)}</b> · ${escapeHtml(a.title)}${a.place ? `\n<i>📍 ${escapeHtml(a.place)}</i>` : ""}`).join("\n")}</blockquote>`
+      : "<i>Ninguno. Escríbeme: «control con la pediatra el 2 de diciembre a las 9»</i>");
+    const rems = await this.activeReminders(30);
+    out.push("\n⏰ <b>Recordatorios</b>");
+    out.push(rems.length
+      ? `<blockquote expandable>${rems.map((r) => `<b>${this.fmtTime(r.due_at)}</b> · ${escapeHtml(r.text)}`
+        + (r.repeat_minutes ? ` <i>(${this.repeatLabel(r.repeat_minutes)})</i>` : "") + ` <code>#${r.id}</code>`).join("\n")}</blockquote>`
+      : "<i>Ninguno. Escríbeme: «recuérdame la vitamina D todos los días a las 8»</i>");
+    return out.join("\n");
+  }
+
+  /** Resumen bonito del día (Telegram y correo). */
+  async dailySummaryText(dayNaive = this.todayNaive()): Promise<string> {
+    const [s, y] = await Promise.all([this.daySummary(dayNaive), this.daySummary(dayNaive - T.DAY)]);
+    const age = await this.ageText();
+    const date = new Date(dayNaive).toLocaleDateString("es", { weekday: "long", day: "numeric", month: "long", timeZone: "UTC" });
+    const vs = (a: number, b: number) => (b ? ` <i>(ayer ${b}${a > b ? " ↑" : a < b ? " ↓" : ""})</i>` : "");
+    const out = [`🌙 <b>Resumen del día · ${escapeHtml(this.babyName)}</b>`, `<i>${date}${age ? ` · ${age}` : ""}</i>`];
+
+    const feedLines = [`<b>${s.feeds} tomas</b>${vs(s.feeds, y.feeds)}`];
+    if (s.feed_ml) feedLines.push(`🍼 ${num(s.feed_ml)} ml en tetero`);
+    if (s.breast_feeds) feedLines.push(`🤱 ${s.breast_feeds} veces pecho${s.breast_minutes ? ` (${num(s.breast_minutes)} min)` : ""}`);
+    out.push(`\n🍼 <b>Alimentación</b>\n<blockquote>${feedLines.join("\n")}</blockquote>`);
+
+    out.push(`🧷 <b>Pañales</b>\n<blockquote><b>${s.diapers} cambios</b>${vs(s.diapers, y.diapers)}\n💧 ${s.pee} pipí · 💩 ${s.poop} popó</blockquote>`);
+
+    const ys = y.sleep_seconds ? ` <i>(ayer ${T.fmtDur(y.sleep_seconds)})</i>` : "";
+    out.push(`😴 <b>Sueño</b>\n<blockquote><b>${s.sleep_seconds >= 60 ? T.fmtDur(s.sleep_seconds) : "Sin registrar"}</b>${ys}`
+      + (s.longest_sleep_seconds >= 600 ? `\nTramo más largo: ${T.fmtDur(s.longest_sleep_seconds)}` : "") + "</blockquote>");
+
+    const care = [
+      s.baths ? `🛁 ${s.baths > 1 ? s.baths + " baños" : "Baño"}` : "",
+      ...s.meds.slice(0, 10).map((m) => `💊 ${escapeHtml(m)}`),
+      ...s.activities.slice(0, 12).map((a) => escapeHtml(a.slice(0, 100))),
+      s.activities.length > 12 ? `<i>… y ${s.activities.length - 12} más</i>` : "",
+      s.max_temp ? `🌡️ Temperatura máx. ${num(s.max_temp)} °C${s.max_temp >= 38 ? " ⚠️" : ""}` : "",
+      s.weight ? `⚖️ Peso ${num(s.weight)} kg` : "",
+    ].filter(Boolean);
+    if (care.length) out.push(`✨ <b>Cuidados</b>\n<blockquote>${care.join("\n")}</blockquote>`);
+
+    const [dayStart] = this.dayBounds(dayNaive + T.DAY);
+    const dayEnd = dayStart + T.DAY;
+    const [appts, rems] = await Promise.all([
+      this.db.prepare("SELECT * FROM appointments WHERE done = 0 AND at >= ? AND at < ? ORDER BY at").bind(dayStart, dayEnd).all<Appointment>(),
+      this.db.prepare("SELECT * FROM reminders WHERE active = 1 AND due_at >= ? AND due_at < ? ORDER BY due_at LIMIT 8").bind(dayStart, dayEnd).all<Reminder>(),
+    ]);
+    const tomorrow = [
+      ...appts.results.map((a) => `🩺 <b>${T.hhmm(T.toNaive(a.at, this.tz))}</b> ${escapeHtml(a.title)}`),
+      ...rems.results.map((r) => `⏰ <b>${T.hhmm(T.toNaive(r.due_at, this.tz))}</b> ${escapeHtml(r.text)}`),
+    ];
+    if (tomorrow.length) out.push(`📅 <b>Mañana</b>\n<blockquote>${tomorrow.join("\n")}</blockquote>`);
+
+    const notes = (await this.listNotes(false, 100)).length;
+    if (notes) out.push(`📝 ${notes === 1 ? "1 nota pendiente" : `${notes} notas pendientes`}`);
+    out.push("\n<i>¡Buenas noches! 🌙 Descansen cuando ella descanse.</i>");
+    return out.join("\n");
   }
 
   parseWhen(text: string, allowRepeat = true) {
@@ -446,7 +512,7 @@ export class App {
   }
 
   async dailySummaryHtml(): Promise<string> {
-    return `${await this.statusText()}\n\n${await this.todayText()}\n\n${await this.agendaText()}`;
+    return `${await this.dailySummaryText()}\n\n${await this.todayText()}`;
   }
 
   // ------------------------------------------------------------ recordatorios automáticos (cron cada minuto)
@@ -532,6 +598,22 @@ export class App {
         await this.alert("feed", `🍼 ${since} sin comer`, `🍼 Ya pasaron ${since} desde la última comida de `
           + `${escapeHtml(this.babyName)} (${this.fmtTime(last.start_at)}).`);
         sent.push(`feed_alert:${last.id}`);
+      }
+    }
+
+    // resumen diario por Telegram (por defecto 9 p. m.)
+    {
+      const n = T.toNaive(now, this.tz);
+      const day = new Date(n).toISOString().slice(0, 10);
+      const h = await this.kvGet("tg_summary_hour");
+      const hourTg = h === null ? 21 : Number(h); // -1 = apagado
+      if (hourTg >= 0 && new Date(n).getUTCHours() >= hourTg && (await this.kvGet("tg_summary_sent")) !== day) {
+        await this.kvSet("tg_summary_sent", day);
+        await this.broadcast(await this.dailySummaryText(), { kb: [[
+          { text: "📋 Ver todo lo de hoy", callback_data: "m:today" },
+          { text: "🕘 Cambiar hora", callback_data: "sumh" },
+        ]] });
+        sent.push(`tg_summary:${day}`);
       }
     }
 

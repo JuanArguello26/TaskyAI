@@ -71,7 +71,8 @@ sleep_start {"type":"sleep_start","ago","time"} · sleep_end {"type":"sleep_end"
 bath {"type":"bath","ago","time"} · medicine {"type":"medicine","name"} = ya se la dieron · temp {"type":"temp","value"} · weight {"type":"weight","kg"}
 tummy {"type":"tummy","amount":minutos|null,"ago","time"} = tummy time / barriguita / boca abajo
 activity {"type":"activity","name","amount":minutos|null,"ago","time"} = cualquier otra cosa que le hicieron a la bebé (masaje, baño de sol, sacar gases, cortar uñas, paseo, extracción de leche…)
-note {"type":"note","text"} = algo para anotar y no olvidar (anota, apunta, comprar, preguntar al pediatra…)
+note {"type":"note","text"} = algo para anotar y NO olvidar, una tarea (anota, apunta, comprar, preguntar al pediatra…)
+diary {"type":"diary","text","ago","time"} = algo que le pasó o cómo estuvo la bebé (hipo, lloró mucho, cólicos, regurgitó, vomitó, estornudos, estuvo tranquila, sarpullido…)
 medication {"type":"medication","name","dose":"2.5 ml"|null,"every_hours":num,"days":num|null,"start_time":"HH:MM"|null} = tratamiento con horario (cada X horas por N días)
 reminder {"type":"reminder","date":"YYYY-MM-DD"|null,"time":"HH:MM"|null,"in_minutes":num|null,"repeat_minutes":num|null,"text"}
 appointment {"type":"appointment","date":"YYYY-MM-DD","time":"HH:MM","title","place":null}
@@ -81,7 +82,7 @@ Reglas:
 - "ago" = hace cuántos minutos OCURRIÓ. "time" = hora a la que ocurrió. Si no se dice cuándo, ambos null.
 - pecho = solo si mamó directo del seno; su "amount" es la DURACIÓN en minutos (no es "ago").
 - Leche materna o fórmula en tetero, biberón, jeringa, vaso o cuchara = "biberon"/"formula" con amount en ml. tetero = biberon.
-- Pañal mojado = pipi; sucio/con caca = popo. Peso en gramos -> kg.
+- Pañal mojado = pipi; sucio/con caca = popo. Peso en gramos -> kg. 1 onza = 30 ml. cc = ml.
 - Una rutina o algo que se repite ("todos los días", "cada 3 horas") = reminder con repeat_minutes.`;
 }
 

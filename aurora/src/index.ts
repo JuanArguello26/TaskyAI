@@ -152,6 +152,7 @@ async function route(req: Request, env: Env, ctx: ExecutionContext): Promise<Res
       telegram: {
         enabled: tgEnabled(env),
         connected: !!(await app.kvGet("webhook_url")),
+        summary_hour: Number((await app.kvGet("tg_summary_hour")) ?? 21),
         caregivers: (await app.caregivers()).map((c) => c.name),
       },
     });
@@ -307,9 +308,16 @@ async function route(req: Request, env: Env, ctx: ExecutionContext): Promise<Res
   // ---------------- ajustes y respaldo
   if (path === "/api/settings" && method === "PUT") {
     const b = await body(req);
-    const bd = b.birth_date ? String(b.birth_date) : null;
-    if (bd && (!/^\d{4}-\d{2}-\d{2}$/.test(bd) || Number.isNaN(Date.parse(bd)))) throw new HttpError(422, "Fecha inválida");
-    await app.kvSet("birth_date", bd);
+    if ("birth_date" in b) {
+      const bd = b.birth_date ? String(b.birth_date) : null;
+      if (bd && (!/^\d{4}-\d{2}-\d{2}$/.test(bd) || Number.isNaN(Date.parse(bd)))) throw new HttpError(422, "Fecha inválida");
+      await app.kvSet("birth_date", bd);
+    }
+    if ("tg_summary_hour" in b) {
+      const h = Number(b.tg_summary_hour);
+      if (!Number.isInteger(h) || h < -1 || h > 23) throw new HttpError(422, "Hora inválida");
+      await app.kvSet("tg_summary_hour", String(h));
+    }
     return json({ ok: true });
   }
 
