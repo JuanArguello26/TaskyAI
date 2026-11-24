@@ -296,6 +296,9 @@ test("bot: texto libre y sueño pasado", async () => {
   assert.match(await tg("tetero 30", 1), /30 ml/);
   assert.match(await tg("pecho izq", 1), /pecho izquierdo/);
   assert.match(await tg("hola", 1), /Hola, Juan/);
+  assert.match(await tg("Hola Tasky!", 1), /Hola, Juan/);
+  assert.match(await tg("Buenos días", 1), /Hola, Juan/);
+  assert.match(await tg("gracias", 1), /Con gusto/);
   assert.match(await tg("30", 1), /No te entendí/);
   assert.match(await tg(`/sueno ${localHHMM(3 * HOUR)} ${localHHMM(2 * HOUR)}`, 1), /1 h 00 min/);
   assert.match(await tg(`/sueno ${localHHMM(3 * HOUR)} 5h`, 1), /futuro/);

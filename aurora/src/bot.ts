@@ -282,7 +282,9 @@ const PLAIN: Record<string, [string, string]> = {
   "bano": ["bano", ""], "se bano": ["bano", ""], "banada": ["bano", ""],
   "estado": ["estado", ""], "resumen": ["estado", ""], "como va": ["estado", ""], "como esta": ["estado", ""],
   "hoy": ["hoy", ""], "agenda": ["agenda", ""], "menu": ["menu", ""], "ayuda": ["ayuda", ""],
-  "deshacer": ["deshacer", ""], "hola": ["hola", ""], "gracias": ["gracias", ""],
+  "deshacer": ["deshacer", ""],
+  "hola": ["hola", ""], "ola": ["hola", ""], "hola tasky": ["hola", ""], "hola bot": ["hola", ""], "buenas": ["hola", ""], "buenos dias": ["hola", ""], "buen dia": ["hola", ""], "buenas tardes": ["hola", ""], "buenas noches": ["hola", ""], "hey": ["hola", ""], "holi": ["hola", ""], "que mas": ["hola", ""], "quiubo": ["hola", ""], "hola hola": ["hola", ""],
+  "gracias": ["gracias", ""], "muchas gracias": ["gracias", ""], "gracias tasky": ["gracias", ""], "mil gracias": ["gracias", ""], "ok": ["gracias", ""], "listo": ["gracias", ""], "vale": ["gracias", ""], "dale": ["gracias", ""],
 };
 const ML_RE = /^(?:(?:tomo|comio|le di)\s+)?(?:biberon|tetero|formula|leche|toma)?\s*(\d+(?:[.,]\d+)?)\s*(?:ml)?$/;
 const ML_WORD = /^(?:(?:tomo|comio)\s+)?(biberon|tetero|formula|leche|toma)$/;
@@ -321,7 +323,7 @@ export async function handleCommand(app: App, cg: Caregiver, chatId: string, cmd
     case "hola":
       return [`¡Hola, ${esc(cg.name)}! 👋 ¿Qué registramos? Usa los botones o cuéntame qué pasó.`, MAIN_KB];
     case "gracias":
-      return ["¡Con gusto! 💜", MAIN_KB];
+      return ["¡Con gusto! 💜", null];
     case "estado": case "resumen": case "status":
       return [await app.statusText(), null];
     case "hoy":
