@@ -12,7 +12,7 @@ binding = "ASSETS"
 [[d1_databases]]
 binding = "DB"
 database_name = "aurora-db"
-database_id = "PEGA-AQUI-EL-ID-DE-TU-BASE"
+database_id = "ec7d9906-7621-4123-8831-653575feeb67"
 migrations_dir = "migrations"
 
 # Revisa recordatorios, controles y alertas de comida cada minuto.
